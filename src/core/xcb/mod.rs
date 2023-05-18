@@ -11,7 +11,7 @@ pub use xcb_ffi::xcb_window_t;
 
 use crate::{core::{xcb::xcb_ffi::{xcb_client_message_event_t, xcb_atom_t}, CoreState}, WWindState};
 
-use super::{CoreWindow, CoreStateData};
+use super::{CoreWindow, CoreStateData, CoreWindowRef};
 
 use self::{atoms::Atoms, xcb_ffi::{XCBWindowClass, xcb_visualid_t, XCBWindowMaskEnum, XCBEventMaskEnum, XCBPropertyMode}};
 
@@ -45,7 +45,7 @@ impl XCBState {
 
         Ok(Self {functions, atoms, connection, screen})
     }
-    pub fn set_window_title(&mut self, window: CoreWindow, title: &str) {
+    pub fn set_window_title(&mut self, window: CoreWindowRef, title: &str) {
         unsafe {
             let window = window.xcb_window;
 
@@ -53,7 +53,7 @@ impl XCBState {
         }
     }
 
-    pub fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindow {
+    pub fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindowRef {
         unsafe {
             let window = xcb_window_t(self.functions.xcb_generate_id(self.connection));
 
@@ -72,11 +72,11 @@ impl XCBState {
 
             self.functions.xcb_change_property(self.connection, XCBPropertyMode::Replace, window, self.atoms.wm_protocols, self.atoms.atom, 32, protocols.len() as u32, protocols.as_ptr() as *const _);
 
-            self.set_window_title(CoreWindow {xcb_window: window}, title);
+            self.set_window_title(CoreWindowRef {xcb_window: window}, title);
 
             self.functions.xcb_flush(self.connection);
 
-            super::CoreWindow{xcb_window: window}
+            super::CoreWindowRef{xcb_window: window}
         }
     }
 
@@ -125,7 +125,7 @@ pub unsafe fn wait_for_events(state: &mut CoreState) -> bool {
                 let protocol: xcb_atom_t = mem::transmute(protocol);
 
                 if protocol == xcb_state.atoms.wm_delete_window {
-                    let window = CoreWindow { xcb_window: client_event.window };
+                    let window = CoreWindowRef { xcb_window: client_event.window };
 
                     super::on_window_close(state, window);
         

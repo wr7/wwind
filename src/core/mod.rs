@@ -5,6 +5,10 @@ use self::xcb::XCBState;
 use super::WindowData;
 use std::{ffi::c_void, collections::HashMap, mem::{MaybeUninit, self}, ptr::{addr_of_mut, addr_of}, sync::atomic::{self, AtomicBool, Ordering}, hash::Hash, cell::UnsafeCell, rc::Rc};
 
+mod core_state_implementation;
+
+pub use core_state_implementation::CoreStateImplementation;
+
 #[cfg(unix)]
 mod xcb;
 
@@ -23,13 +27,17 @@ pub enum CoreStateEnum {
     XCB(XCBState)
 }
 
-static mut WINDOWS_TO_DESTROY: MaybeUninit<Vec<CoreWindow>> = MaybeUninit::uninit();
-
 impl CoreState {
+    fn get_data_mut(&mut self) -> &mut CoreStateData {
+        unsafe {self.data.get().as_mut().unwrap_unchecked()}
+    }
+
+    unsafe fn get_data(&self) -> &mut CoreStateData {
+        self.data.get().as_mut().unwrap_unchecked()
+    }
+
     unsafe fn get_xcb(&mut self) -> &mut XCBState {
-        let data = self.data.get().as_mut().unwrap_unchecked();
-        
-        if let CoreStateEnum::XCB(state) = &mut self.data {
+        if let CoreStateEnum::XCB(state) = &mut self.get_data_mut().core_state {
             state
         } else {
             panic!("get_xcb called with non-xcb state")
@@ -38,43 +46,54 @@ impl CoreState {
 }
 
 impl CoreState {
+    pub fn get_window_from_ref(&self, core_window_ref: CoreWindowRef) -> CoreWindow {
+        let core_state_data = self.data.clone();
+
+        CoreWindow { core_window_ref, core_state_data }
+    }
+
     pub unsafe fn wait_for_events(&mut self) -> bool {
-        match self.core_state {
-            CoreStateEnum::XCB(_) => xcb::wait_for_events(self),
+        match self.get_data_mut().core_state {
+            CoreStateEnum::XCB(_) => XCBState::wait_for_events(self),
         }
     }
     pub unsafe fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindow {
-        let core_window = match &mut self.core_state {
+        let core_window_ref = match &mut self.get_data_mut().core_state {
             #[cfg(unix)]
             CoreStateEnum::XCB(xcb_state) => {xcb_state.add_window(x, y, height, width, title)},
         };
         
 
-        let windows = &mut self.windows;
-        windows.insert(core_window, Default::default());
+        let windows = &mut self.get_data_mut().windows;
+        windows.insert(core_window_ref, Default::default());
 
-        core_window;
+        let core_state = self.data.clone();
 
-        todo!()
+        CoreWindow {core_state_data: core_state, core_window_ref}
     }
 
     pub fn do_windows_exist(&self) -> bool{
-        !self.windows.is_empty()
+        !unsafe{self.get_data()}.windows.is_empty()
     }
 
-    pub fn destroy_pending_windows(&mut self) {
-        let windows_to_destroy = unsafe{WINDOWS_TO_DESTROY.assume_init_mut()};
-
-        windows_to_destroy.drain(..).map(|window| {
-            self.destroy_window(window);
-        }).count();
-
-    }
-    fn destroy_window(&mut self, window: CoreWindow) {
-        match &mut self.core_state {
-            CoreStateEnum::XCB(xcb_state) => unsafe {xcb_state.destroy_window(window.core_window.xcb_window)},
+    /// Destroys the windows that were scheduled for deletion
+    /// ## Safety
+    /// This function is unsafe if a CoreWindow exists for a window that's scheduled for deletion
+    pub unsafe fn destroy_pending_windows(&mut self) {
+        while let Some(window_ref) = self.get_data_mut().windows_to_destroy.pop() {
+            self.destroy_window(window_ref)
         }
-        self.windows.remove(&window.core_window);
+    }
+
+    /// Directly destroys the underlying Window
+    /// ## Safety
+    /// This function is unsafe if a CoreWindow for this window exists after this function is called
+    unsafe fn destroy_window(&mut self, window: CoreWindowRef) {
+        match &mut unsafe{self.get_data_mut()}.core_state {
+            CoreStateEnum::XCB(xcb_state) => unsafe {xcb_state.destroy_window(window)},
+        }
+
+        unsafe{self.get_data_mut()}.windows.remove(&window);
     }
 }
 
@@ -87,38 +106,36 @@ pub enum CoreStateType {
 static STATE_CREATED: AtomicBool = AtomicBool::new(false);
 static mut CORE_STATE_TYPE: MaybeUninit<CoreStateType> = MaybeUninit::uninit();
 
-unsafe fn on_window_close<'a>(state: &'a mut CoreState, core_window: CoreWindowRef) {
-    // if let Some(window_data) = state.windows.get_mut(&core_window) {
-    //     let on_close = window_data.on_close.take();
-    //     mem::drop(window_data);
+unsafe fn on_window_close<'a>(state: &'a mut CoreState, core_window_ref: CoreWindowRef) {
+    if let Some(window_data) = state.get_data().windows.get_mut(&core_window_ref) {
+        let on_close = window_data.on_close.take();
+        mem::drop(window_data);
 
-    //     if let Some(mut on_close) = on_close {
+        if let Some(mut on_close) = on_close {
 
-    //         let window: Window<'a> = Window {window: core_window, _unsend: Default::default(), _phantom_data: Default::default()};
-    //         let mut wwind_state = WWindState {state: state as *mut CoreState, _unsend: Default::default()};
+            let core_window = state.get_window_from_ref(core_window_ref);
 
-    //         on_close(&mut wwind_state, window);
+            let window: Window<'a> = Window {window: core_window, _unsend: Default::default(), _phantom_data: Default::default()};
+            let mut wwind_state = WWindState {state: state as *mut CoreState, _unsend: Default::default()};
 
-    //         state.windows.get_mut(&core_window).map(|window_data| window_data.on_close = Some(on_close));
-    //         mem::forget(wwind_state);
+            on_close(&mut wwind_state, window);
 
-    //         // window_data.on_close = Some(on_close); // UNDEFINED BEHAVIOR
-    //     } else {
-    //         println!("No on close for window");
-    //         core_window.schedule_window_destruction();
-    //     }
-    // } else {
-    //     println!("on_window_close called on non-existant window");
-    // }
+            state.get_data().windows.get_mut(&core_window_ref).map(|window_data| window_data.on_close = Some(on_close));
+            mem::forget(wwind_state);
 
-    todo!()
+            // window_data.on_close = Some(on_close); // UNDEFINED BEHAVIOR
+        } else {
+            println!("No on close for window");
+            state.get_window_from_ref(core_window_ref).schedule_window_destruction();
+        }
+    } else {
+        println!("on_window_close called on non-existant window");
+    }
 }
 
 impl CoreState {
     pub fn new() -> Option<Self> {
         if !STATE_CREATED.fetch_or(true, atomic::Ordering::Acquire) {
-            unsafe {WINDOWS_TO_DESTROY.write(Vec::new())};
-
             unsafe {MaybeUninit::write(&mut CORE_STATE_TYPE, CoreStateType::XCB)};
 
             let xcb_state = unsafe {XCBState::new().unwrap()};
@@ -127,7 +144,9 @@ impl CoreState {
             let windows = HashMap::new();
             let windows_to_destroy = Vec::new();
 
-            Some(CoreState {core_state, windows, windows_to_destroy})
+            let data = CoreStateData {core_state, windows, windows_to_destroy};
+
+            Some(CoreState {data: Rc::new(UnsafeCell::new(data))})
         } else {
             None
         }
@@ -138,7 +157,6 @@ impl Drop for CoreState {
     fn drop(&mut self) {
         unsafe {
             CORE_STATE_TYPE.assume_init_drop();
-            WINDOWS_TO_DESTROY.assume_init_drop();
 
             STATE_CREATED.store(false, atomic::Ordering::Release);
         }
@@ -149,19 +167,19 @@ impl Drop for CoreState {
 /// Note: this doesn't destroy the window upon drop
 #[derive(Clone)]
 pub struct CoreWindow {
-    core_window: CoreWindowRef,
-    core_state: Rc<UnsafeCell<CoreState>>,
+    core_window_ref: CoreWindowRef,
+    core_state_data: Rc<UnsafeCell<CoreStateData>>,
 }
 
-// Represents a reference to a window
+/// Represents a reference to a window
 #[derive(Clone, Copy)]
-union CoreWindowRef {
-    xcb_window: self::xcb::xcb_window_t,
+pub union CoreWindowRef {
+    xcb_window: <XCBState as CoreStateImplementation>::Window,
 }
 
 impl PartialEq for CoreWindow {
     fn eq(&self, other: &Self) -> bool {
-        self.core_window == other.core_window
+        self.core_window_ref == other.core_window_ref
     }
 }
 
@@ -199,16 +217,20 @@ impl Hash for CoreWindowRef {
 impl CoreWindow {
     /// Unsafe: function can only be called while the CoreState exists and on the thread where it was created
     pub unsafe fn schedule_window_destruction(&mut self) {
-        let windows_to_destroy = WINDOWS_TO_DESTROY.assume_init_mut();
-        if !windows_to_destroy.contains(&self) {
-            windows_to_destroy.push(todo!());
+        let core_window_ref = self.core_window_ref;
+        let windows_to_destroy = &mut self.get_core_state_data_mut().windows_to_destroy;
+
+        if !windows_to_destroy.contains(&core_window_ref) {
+            windows_to_destroy.push(core_window_ref);
         }
     }
-    pub fn on_window_close_attempt<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(&mut self, closure: F) {
-        let core_state = unsafe {
-            self.core_state.get().as_mut().unwrap()
-        };
+    pub fn get_core_state_data_mut(&mut self) -> &mut CoreStateData {
+        unsafe {self.core_state_data.get().as_mut().unwrap()}
+    }
 
-        core_state.windows.get_mut(&self.core_window).map(|data| data.on_close = Some(Box::new(closure)));
+    pub fn on_window_close_attempt<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(&mut self, closure: F) {
+        let window_ref = self.core_window_ref;
+
+        self.get_core_state_data_mut().windows.get_mut(&window_ref).map(|data| data.on_close = Some(Box::new(closure)));
     }
 }

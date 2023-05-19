@@ -2,6 +2,11 @@
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 
+//  TODO: 
+// -  remove RC in CoreWindowState
+// -  test library
+
+
 
 use crate::core::{CoreWindow, CoreState, CoreStateData};
 use std::{mem, sync::atomic::AtomicBool, collections::HashMap, ptr::{addr_of, addr_of_mut}, marker::PhantomData};
@@ -60,9 +65,11 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
         mem::forget(state);
         
 
-        while !unsafe {SHOULD_EXIT} && self.state.do_windows_exist() {
-            unsafe {self.state.wait_for_events()};
-            self.state.destroy_pending_windows();
+        unsafe {
+            while !SHOULD_EXIT && self.state.do_windows_exist() {
+                self.state.wait_for_events();
+                self.state.destroy_pending_windows();
+            }
         }
         
     }

@@ -1,4 +1,4 @@
-use crate::core::CoreState;
+use crate::core::CoreStateData;
 
 use super::{xcb_ffi::{xcb_atom_t, xcb_intern_atom_cookie_t, XCBFunctions, xcb_connection_t}, XCBState};
 

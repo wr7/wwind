@@ -11,7 +11,7 @@ pub use xcb_ffi::xcb_window_t;
 
 use crate::{core::{xcb::xcb_ffi::{xcb_client_message_event_t, xcb_atom_t}, CoreState}, WWindState};
 
-use super::{CoreWindow, CoreStateData, CoreWindowRef};
+use super::{CoreWindow, CoreWindowRef, CoreStateImplementation};
 
 use self::{atoms::Atoms, xcb_ffi::{XCBWindowClass, xcb_visualid_t, XCBWindowMaskEnum, XCBEventMaskEnum, XCBPropertyMode}};
 
@@ -23,9 +23,11 @@ pub struct XCBState {
 }
 
 
-impl XCBState {
+impl CoreStateImplementation for XCBState {
+    type Error = libloading::Error;
+    type Window = xcb_window_t;
     // Two XCB instances cannot exist at the same time. 
-    pub unsafe fn new() -> Result<Self, libloading::Error> {
+    unsafe fn new() -> Result<Self, libloading::Error> {
         let xcb_library = Library::new("libxcb.so")?;
         let functions = XCBFunctions::new(xcb_library)?;
 
@@ -45,7 +47,8 @@ impl XCBState {
 
         Ok(Self {functions, atoms, connection, screen})
     }
-    pub fn set_window_title(&mut self, window: CoreWindowRef, title: &str) {
+
+    fn set_window_title(&mut self, window: CoreWindowRef, title: &str) {
         unsafe {
             let window = window.xcb_window;
 
@@ -53,7 +56,7 @@ impl XCBState {
         }
     }
 
-    pub fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindowRef {
+    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindowRef {
         unsafe {
             let window = xcb_window_t(self.functions.xcb_generate_id(self.connection));
 
@@ -80,75 +83,76 @@ impl XCBState {
         }
     }
 
-    pub unsafe fn destroy_window(&mut self, window: xcb_window_t) {
-        self.functions.xcb_destroy_window(self.connection, window);
+    unsafe fn destroy_window(&mut self, window: CoreWindowRef) {
+        self.functions.xcb_destroy_window(self.connection, window.xcb_window);
+    }
+
+    unsafe fn wait_for_events(state: &mut CoreState) -> bool {
+        let xcb_state = state.get_xcb();
+    
+        let event = xcb_state.functions.xcb_wait_for_event(xcb_state.connection);
+    
+        if event.is_null() {
+            return false;
+        }
+    
+        let event = *Box::from_raw(event);
+    
+        let response_type = event.response_type & !0x80;
+    
+        match response_type {
+            12 => { // XCB_EXPOSE
+                println!("Expose");
+            },
+            33 => { // XCB_CLIENT_MESSAGE
+                let client_event = xcb_client_message_event_t::from_generic(event);
+    
+                if client_event.message_type == xcb_state.atoms.wm_protocols {
+                    let protocol = client_event.data.data32[0];
+    
+                    if protocol == 0 {
+                        return true;
+                    }
+    
+                    let protocol: xcb_atom_t = mem::transmute(protocol);
+    
+                    if protocol == xcb_state.atoms.wm_delete_window {
+                        let window = CoreWindowRef { xcb_window: client_event.window };
+    
+                        super::on_window_close(state, window);
+            
+                    } else if protocol == xcb_state.atoms.net_wm_ping {
+                        let mut reply = client_event;
+                        
+                        reply.window = (*xcb_state.screen).root;
+    
+                        xcb_state.functions.xcb_send_event(xcb_state.connection, false, (*xcb_state.screen).root, XCBEventMaskEnum::SubstructureNotify | XCBEventMaskEnum::ResizeRedirect, addr_of!(reply) as *const _);
+    
+                        xcb_state.functions.xcb_flush(xcb_state.connection);
+                    } else {
+                        println!("unknown client event type {:?}", client_event.message_type);
+                    }
+    
+                }
+            }
+            _ => {
+                println!("Unknown event: {response_type:?}");
+            }
+        }
+    
+        true
     }
 
     /*pub unsafe fn rename_window(&mut self, window: xcb_window_t, window_name: &str) {
         self.functions.xcb_change_property(self.connection, mode, window, property, data_type, element_size, data_len, data)
     }*/
+}
 
+impl XCBState {
     #[inline]
     unsafe fn screen<'a>(&'a mut self) -> &'a mut xcb_screen_t {
         self.screen.as_mut().unwrap()
     }
-    
-}
-
-pub unsafe fn wait_for_events(state: &mut CoreState) -> bool {
-    let xcb_state = state.get_xcb();
-
-    let event = xcb_state.functions.xcb_wait_for_event(xcb_state.connection);
-
-    if event.is_null() {
-        return false;
-    }
-
-    let event = *Box::from_raw(event);
-
-    let response_type = event.response_type & !0x80;
-
-    match response_type {
-        12 => { // XCB_EXPOSE
-            // expose
-        },
-        33 => { // XCB_CLIENT_MESSAGE
-            let client_event = xcb_client_message_event_t::from_generic(event);
-
-            if client_event.message_type == xcb_state.atoms.wm_protocols {
-                let protocol = client_event.data.data32[0];
-
-                if protocol == 0 {
-                    return true;
-                }
-
-                let protocol: xcb_atom_t = mem::transmute(protocol);
-
-                if protocol == xcb_state.atoms.wm_delete_window {
-                    let window = CoreWindowRef { xcb_window: client_event.window };
-
-                    super::on_window_close(state, window);
-        
-                } else if protocol == xcb_state.atoms.net_wm_ping {
-                    let mut reply = client_event;
-                    
-                    reply.window = (*xcb_state.screen).root;
-
-                    xcb_state.functions.xcb_send_event(xcb_state.connection, false, (*xcb_state.screen).root, XCBEventMaskEnum::SubstructureNotify | XCBEventMaskEnum::ResizeRedirect, addr_of!(reply) as *const _);
-
-                    xcb_state.functions.xcb_flush(xcb_state.connection);
-                } else {
-                    println!("unknown client event type {:?}", client_event.message_type);
-                }
-
-            }
-        }
-        _ => {
-            println!("Unknown event: {response_type:?}");
-        }
-    }
-
-    true
 }
 
 impl Drop for XCBState {

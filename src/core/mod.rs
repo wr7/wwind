@@ -1,6 +1,12 @@
 use crate::{Window, WWindState};
 
-use self::{xcb::XCBState, x11rb::X11RbState, core_state_implementation::CoreWindowRef};
+use self::{core_state_implementation::{CoreWindowRef, CoreStateEnum}};
+
+#[cfg(xcb)]
+use self::xcb::XCBState;
+
+#[cfg(x11)]
+use self::x11rb::X11RbState;
 
 use super::WindowData;
 use std::{ffi::c_void, collections::HashMap, mem::{MaybeUninit, self}, ptr::{addr_of_mut, addr_of}, sync::atomic::{self, AtomicBool, Ordering}, hash::Hash, cell::UnsafeCell, rc::Rc};
@@ -9,9 +15,9 @@ mod core_state_implementation;
 
 pub use core_state_implementation::CoreStateImplementation;
 
-#[cfg(unix)]
+#[cfg(xcb)]
 mod xcb;
-#[cfg(unix)]
+#[cfg(x11)]
 mod x11rb;
 
 #[derive(Clone)]
@@ -25,13 +31,6 @@ pub struct CoreStateData {
     windows_to_destroy: Vec<CoreWindowRef>,
 }
 
-pub enum CoreStateEnum {
-    #[cfg(unix)]
-    XCB(XCBState),
-    #[cfg(unix)]
-    X11(X11RbState),
-}
-
 impl CoreState {
     fn get_data_mut(&mut self) -> &mut CoreStateData {
         unsafe {self.data.get().as_mut().unwrap_unchecked()}
@@ -41,6 +40,7 @@ impl CoreState {
         self.data.get().as_mut().unwrap_unchecked()
     }
 
+    #[cfg(xcb)]
     unsafe fn get_xcb(&mut self) -> &mut XCBState {
         if let CoreStateEnum::XCB(state) = &mut self.get_data_mut().core_state {
             state
@@ -49,6 +49,7 @@ impl CoreState {
         }
     }
 
+    #[cfg(x11)]
     unsafe fn get_x11(&mut self) -> &mut X11RbState {
         if let CoreStateEnum::X11(state) = &mut self.get_data_mut().core_state {
             state
@@ -104,9 +105,9 @@ impl CoreState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoreStateType {
-    #[cfg(unix)]
+    #[cfg(xcb)]
     XCB,
-    #[cfg(unix)]
+    #[cfg(x11)]
     X11,
 }
 

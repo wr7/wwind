@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 libloading = "0.7.4"
+x11rb = "0.11.1"

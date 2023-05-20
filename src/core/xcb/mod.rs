@@ -48,19 +48,17 @@ impl CoreStateImplementation for XCBState {
         Ok(Self {functions, atoms, connection, screen})
     }
 
-    fn set_window_title(&mut self, window: CoreWindowRef, title: &str) {
+    fn set_window_title(&mut self, window: Self::Window, title: &str) {
         unsafe {
-            let window = window.xcb_window;
-
             self.functions.xcb_change_property(self.connection, XCBPropertyMode::Replace, window, self.atoms.net_wm_name, self.atoms.utf8_string, 8, title.len() as u32, title.as_bytes().as_ptr() as *const _);
         }
     }
 
-    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindowRef {
+    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error> {
         unsafe {
             let window = xcb_window_t(self.functions.xcb_generate_id(self.connection));
 
-            let event_mask = XCBEventMaskEnum::Exposure as u32;
+            let event_mask = (XCBEventMaskEnum::Exposure) as u32;
             let value_mask = XCBWindowMaskEnum::BackPixel | XCBWindowMaskEnum::EventMask;
             let values: [u32; 2] = [self.screen().black_pixel, event_mask];
 
@@ -75,16 +73,16 @@ impl CoreStateImplementation for XCBState {
 
             self.functions.xcb_change_property(self.connection, XCBPropertyMode::Replace, window, self.atoms.wm_protocols, self.atoms.atom, 32, protocols.len() as u32, protocols.as_ptr() as *const _);
 
-            self.set_window_title(CoreWindowRef {xcb_window: window}, title);
+            self.set_window_title(window, title);
 
             self.functions.xcb_flush(self.connection);
 
-            super::CoreWindowRef{xcb_window: window}
+            Ok(window)
         }
     }
 
-    unsafe fn destroy_window(&mut self, window: CoreWindowRef) {
-        self.functions.xcb_destroy_window(self.connection, window.xcb_window);
+    unsafe fn destroy_window(&mut self, window: Self::Window) {
+        self.functions.xcb_destroy_window(self.connection, window);
     }
 
     unsafe fn wait_for_events(state: &mut CoreState) -> bool {
@@ -97,14 +95,16 @@ impl CoreStateImplementation for XCBState {
         }
     
         let event = *Box::from_raw(event);
+        dbg!(event.response_type);
     
         let response_type = event.response_type & !0x80;
     
         match response_type {
             12 => { // XCB_EXPOSE
-                println!("Expose");
+                eprintln!("Expose");
             },
             33 => { // XCB_CLIENT_MESSAGE
+                eprintln!("Cl");
                 let client_event = xcb_client_message_event_t::from_generic(event);
     
                 if client_event.message_type == xcb_state.atoms.wm_protocols {
@@ -117,7 +117,7 @@ impl CoreStateImplementation for XCBState {
                     let protocol: xcb_atom_t = mem::transmute(protocol);
     
                     if protocol == xcb_state.atoms.wm_delete_window {
-                        let window = CoreWindowRef { xcb_window: client_event.window };
+                        let window = CoreWindowRef::from_xcb(client_event.window);
     
                         super::on_window_close(state, window);
             

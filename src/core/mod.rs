@@ -1,6 +1,6 @@
 use crate::{Window, WWindState};
 
-use self::xcb::XCBState;
+use self::{xcb::XCBState, x11rb::X11RbState, core_state_implementation::CoreWindowRef};
 
 use super::WindowData;
 use std::{ffi::c_void, collections::HashMap, mem::{MaybeUninit, self}, ptr::{addr_of_mut, addr_of}, sync::atomic::{self, AtomicBool, Ordering}, hash::Hash, cell::UnsafeCell, rc::Rc};
@@ -11,7 +11,10 @@ pub use core_state_implementation::CoreStateImplementation;
 
 #[cfg(unix)]
 mod xcb;
+#[cfg(unix)]
+mod x11rb;
 
+#[derive(Clone)]
 pub struct CoreState {
     data: Rc<UnsafeCell<CoreStateData>>,
 }
@@ -24,7 +27,9 @@ pub struct CoreStateData {
 
 pub enum CoreStateEnum {
     #[cfg(unix)]
-    XCB(XCBState)
+    XCB(XCBState),
+    #[cfg(unix)]
+    X11(X11RbState),
 }
 
 impl CoreState {
@@ -43,6 +48,14 @@ impl CoreState {
             panic!("get_xcb called with non-xcb state")
         }
     }
+
+    unsafe fn get_x11(&mut self) -> &mut X11RbState {
+        if let CoreStateEnum::X11(state) = &mut self.get_data_mut().core_state {
+            state
+        } else {
+            panic!("get_x11 called with non-x11 state")
+        }
+    }
 }
 
 impl CoreState {
@@ -53,16 +66,10 @@ impl CoreState {
     }
 
     pub unsafe fn wait_for_events(&mut self) -> bool {
-        match self.get_data_mut().core_state {
-            CoreStateEnum::XCB(_) => XCBState::wait_for_events(self),
-        }
+        CoreStateEnum::wait_for_events(self)
     }
     pub unsafe fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindow {
-        let core_window_ref = match &mut self.get_data_mut().core_state {
-            #[cfg(unix)]
-            CoreStateEnum::XCB(xcb_state) => {xcb_state.add_window(x, y, height, width, title)},
-        };
-        
+        let core_window_ref = self.get_data_mut().core_state.add_window(x, y, height, width, title).unwrap();
 
         let windows = &mut self.get_data_mut().windows;
         windows.insert(core_window_ref, Default::default());
@@ -89,18 +96,18 @@ impl CoreState {
     /// ## Safety
     /// This function is unsafe if a CoreWindow for this window exists after this function is called
     unsafe fn destroy_window(&mut self, window: CoreWindowRef) {
-        match &mut unsafe{self.get_data_mut()}.core_state {
-            CoreStateEnum::XCB(xcb_state) => unsafe {xcb_state.destroy_window(window)},
-        }
+        self.get_data_mut().core_state.destroy_window(window);
 
-        unsafe{self.get_data_mut()}.windows.remove(&window);
+        self.get_data_mut().windows.remove(&window);
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoreStateType {
     #[cfg(unix)]
-    XCB
+    XCB,
+    #[cfg(unix)]
+    X11,
 }
 
 static STATE_CREATED: AtomicBool = AtomicBool::new(false);
@@ -136,11 +143,8 @@ unsafe fn on_window_close<'a>(state: &'a mut CoreState, core_window_ref: CoreWin
 impl CoreState {
     pub fn new() -> Option<Self> {
         if !STATE_CREATED.fetch_or(true, atomic::Ordering::Acquire) {
-            unsafe {MaybeUninit::write(&mut CORE_STATE_TYPE, CoreStateType::XCB)};
 
-            let xcb_state = unsafe {XCBState::new().unwrap()};
-
-            let core_state = CoreStateEnum::XCB(xcb_state);
+            let core_state = unsafe{CoreStateEnum::new()}.unwrap();
             let windows = HashMap::new();
             let windows_to_destroy = Vec::new();
 
@@ -171,46 +175,9 @@ pub struct CoreWindow {
     core_state_data: Rc<UnsafeCell<CoreStateData>>,
 }
 
-/// Represents a reference to a window
-#[derive(Clone, Copy)]
-pub union CoreWindowRef {
-    xcb_window: <XCBState as CoreStateImplementation>::Window,
-}
-
 impl PartialEq for CoreWindow {
     fn eq(&self, other: &Self) -> bool {
         self.core_window_ref == other.core_window_ref
-    }
-}
-
-impl PartialEq for CoreWindowRef {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe {
-            if !STATE_CREATED.load(Ordering::Acquire) {
-                panic!("PartialEq called with no loaded state");
-            }
-            let state_type = CORE_STATE_TYPE.assume_init_ref();
-
-            match state_type {
-                CoreStateType::XCB => {self.xcb_window == other.xcb_window}
-            }
-        }
-    }
-}
-impl Eq for CoreWindowRef {}
-impl Hash for CoreWindowRef {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        unsafe {
-            if !STATE_CREATED.load(Ordering::Acquire) {
-                panic!("Hash called with no loaded state");
-            }
-
-            let state_type = CORE_STATE_TYPE.assume_init_ref();
-
-            match state_type {
-                CoreStateType::XCB => {self.xcb_window.hash(state)}
-            }
-        }
     }
 }
 

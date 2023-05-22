@@ -19,6 +19,8 @@ pub use core_state_implementation::CoreStateImplementation;
 mod xcb;
 #[cfg(x11)]
 mod x11rb;
+#[cfg(windows)]
+mod win32;
 
 #[derive(Clone)]
 pub struct CoreState {
@@ -109,6 +111,8 @@ pub enum CoreStateType {
     XCB,
     #[cfg(x11)]
     X11,
+    #[cfg(windows)]
+    Win32,
 }
 
 static STATE_CREATED: AtomicBool = AtomicBool::new(false);

@@ -174,22 +174,54 @@ impl CoreStateImplementation for CoreStateEnum {
     type Window = CoreWindowRef;
 
     unsafe fn new() -> Result<Self, Self::Error> {
-        unsafe {MaybeUninit::write(&mut CORE_STATE_TYPE, CoreStateType::Win32)};
+        #[cfg(windows)] {
+            CORE_STATE_TYPE.write(CoreStateType::Win32);
 
-        let win32_state = unsafe {Win32State::new().unwrap()};
+            let win32_state = unsafe {Win32State::new().unwrap()};
 
-        let core_state = CoreStateEnum::Win32(win32_state);
+            let core_state = CoreStateEnum::Win32(win32_state);
 
-        Ok(core_state)
+            return Ok(core_state);
+        }
+
+        #[cfg(x11)]
+        let err = {
+            match X11RbState::new() {
+                Ok(state) => {
+                    CORE_STATE_TYPE.write(CoreStateType::X11);
+
+                    let state = CoreStateEnum::X11(state);
+
+                    return Ok(state)
+                },
+                Err(err) => err,
+            }
+        };
+
+        #[cfg(xcb)]
+        let err = {
+            match XCBState::new() {
+                Ok(state) => {
+                    CORE_STATE_TYPE.write(CoreStateType::XCB);
+
+                    let state = CoreStateEnum::XCB(state);
+
+                    return Ok(state)
+                },
+                Err(err) => err,
+            }
+        };
+
+        panic!("{err:?}");
     }
 
     fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error> {
         unsafe {
             let window = match self {
                 #[cfg(xcb)]
-                CoreStateEnum::XCB(xcb_state) => Self::Window::from_xcb(xcb_state.add_window(x, y, height, width, title)?),
+                CoreStateEnum::XCB(xcb_state) => xcb_state.add_window(x, y, height, width, title)?.into(),
                 #[cfg(x11)]
-                CoreStateEnum::X11(x11_state) => Self::Window::from_x11(x11_state.add_window(x, y, height, width, title)?),
+                CoreStateEnum::X11(x11_state) => x11_state.add_window(x, y, height, width, title)?.into(),
                 #[cfg(windows)]
                 CoreStateEnum::Win32(win32_state) => win32_state.add_window(x, y, height, width, title)?.into(),
             };
@@ -222,13 +254,11 @@ impl CoreStateImplementation for CoreStateEnum {
     unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
         match self {
             #[cfg(xcb)]
-            CoreStateType::XCB => XCBState::wait_for_events(state),
+            CoreStateEnum::XCB(s) => s.wait_for_events(),
             #[cfg(x11)]
-            CoreStateType::X11 => X11RbState::wait_for_events(state),
+            CoreStateEnum::X11(s) => s.wait_for_events(),
             #[cfg(windows)]
-            CoreStateEnum::Win32(s) => {
-                s.wait_for_events()
-            },
+            CoreStateEnum::Win32(s) => s.wait_for_events(),
         }
     }
 }

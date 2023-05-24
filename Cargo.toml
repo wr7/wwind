@@ -6,10 +6,8 @@ build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[target.'cfg(all(unix, feature="x11"))'.dependencies]
+[target.'cfg(all(unix))'.dependencies]
 x11rb = {version = "0.11.1", optional = true}
-
-[target.'cfg(all(unix, feature="xcb"))'.dependencies]
 libloading = {version = "0.7.4", optional = true}
 
 [target.'cfg(all(windows))'.dependencies]

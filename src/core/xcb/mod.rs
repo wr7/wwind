@@ -11,7 +11,7 @@ pub use xcb_ffi::xcb_window_t;
 
 use crate::{core::{xcb::xcb_ffi::{xcb_client_message_event_t, xcb_atom_t}, CoreState}, WWindState};
 
-use super::{CoreWindow, CoreWindowRef, CoreStateImplementation};
+use super::{CoreWindow, CoreWindowRef, CoreStateImplementation, core_state_implementation::WWindCoreEvent};
 
 use self::{atoms::Atoms, xcb_ffi::{XCBWindowClass, xcb_visualid_t, XCBWindowMaskEnum, XCBEventMaskEnum, XCBPropertyMode}};
 
@@ -85,13 +85,11 @@ impl CoreStateImplementation for XCBState {
         self.functions.xcb_destroy_window(self.connection, window);
     }
 
-    unsafe fn wait_for_events(state: &mut CoreState) -> bool {
-        let xcb_state = state.get_xcb();
-    
-        let event = xcb_state.functions.xcb_wait_for_event(xcb_state.connection);
+    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {    
+        let event = self.functions.xcb_wait_for_event(self.connection);
     
         if event.is_null() {
-            return false;
+            return None;
         }
     
         let event = *Box::from_raw(event);
@@ -107,28 +105,26 @@ impl CoreStateImplementation for XCBState {
                 eprintln!("Cl");
                 let client_event = xcb_client_message_event_t::from_generic(event);
     
-                if client_event.message_type == xcb_state.atoms.wm_protocols {
+                if client_event.message_type == self.atoms.wm_protocols {
                     let protocol = client_event.data.data32[0];
     
                     if protocol == 0 {
-                        return true;
+                        return None;
                     }
     
                     let protocol: xcb_atom_t = mem::transmute(protocol);
     
-                    if protocol == xcb_state.atoms.wm_delete_window {
-                        let window = CoreWindowRef::from_xcb(client_event.window);
-    
-                        super::on_window_close(state, window);
+                    if protocol == self.atoms.wm_delete_window {
+                        return Some(WWindCoreEvent::CloseWindow(client_event.window.into()));
             
-                    } else if protocol == xcb_state.atoms.net_wm_ping {
+                    } else if protocol == self.atoms.net_wm_ping {
                         let mut reply = client_event;
                         
-                        reply.window = (*xcb_state.screen).root;
+                        reply.window = (*self.screen).root;
     
-                        xcb_state.functions.xcb_send_event(xcb_state.connection, false, (*xcb_state.screen).root, XCBEventMaskEnum::SubstructureNotify | XCBEventMaskEnum::ResizeRedirect, addr_of!(reply) as *const _);
+                        self.functions.xcb_send_event(self.connection, false, (*self.screen).root, XCBEventMaskEnum::SubstructureNotify | XCBEventMaskEnum::ResizeRedirect, addr_of!(reply) as *const _);
     
-                        xcb_state.functions.xcb_flush(xcb_state.connection);
+                        self.functions.xcb_flush(self.connection);
                     } else {
                         println!("unknown client event type {:?}", client_event.message_type);
                     }
@@ -140,7 +136,7 @@ impl CoreStateImplementation for XCBState {
             }
         }
     
-        true
+        None
     }
 
     /*pub unsafe fn rename_window(&mut self, window: xcb_window_t, window_name: &str) {

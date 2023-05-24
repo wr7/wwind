@@ -1,4 +1,4 @@
-use super::{CoreStateImplementation, CoreWindowRef, CoreState};
+use super::{CoreStateImplementation, CoreWindowRef, CoreState, core_state_implementation::WWindCoreEvent};
 use x11rb::{
     protocol::{
         Event,
@@ -80,13 +80,12 @@ impl CoreStateImplementation for X11RbState {
         destroy_window(&self.connection, window).unwrap();
     }
 
-    unsafe fn wait_for_events(state: &mut CoreState) -> bool {
-        let x11rb_state = state.get_x11();
+    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
     
-        let event = x11rb_state.connection.wait_for_event();
+        let event = self.connection.wait_for_event();
 
         let event = if let Ok(event) = event {event} else {
-            return false
+            return None
         };
 
         match event {
@@ -95,28 +94,26 @@ impl CoreStateImplementation for X11RbState {
             },
             Event::ClientMessage(event) => { // XCB_CLIENT_MESSAGE
                 println!("client event");
-                if event.type_ == x11rb_state.atoms.WM_PROTOCOLS {
+                if event.type_ == self.atoms.WM_PROTOCOLS {
                     let protocol = event.data.as_data32()[0];
     
                     if protocol == 0 {
-                        return true;
+                        return None;
                     }
     
                     
-                    if protocol == x11rb_state.atoms.WM_DELETE_WINDOW {
-                        let window = CoreWindowRef::from_x11(event.window);
-    
-                        super::on_window_close(state, window);
+                    if protocol == self.atoms.WM_DELETE_WINDOW {
+                        return Some(WWindCoreEvent::CloseWindow(event.window.into()))
             
-                    } else if protocol == x11rb_state.atoms._NET_WM_PING {
+                    } else if protocol == self.atoms._NET_WM_PING {
                         let mut reply = event;
                         
-                        reply.window = x11rb_state.screen.root;
+                        reply.window = self.screen.root;
     
                         println!("pong");
-                        send_event(&x11rb_state.connection, false, x11rb_state.screen.root, EventMask::SUBSTRUCTURE_NOTIFY | EventMask::RESIZE_REDIRECT, reply).unwrap();
+                        send_event(&self.connection, false, self.screen.root, EventMask::SUBSTRUCTURE_NOTIFY | EventMask::RESIZE_REDIRECT, reply).unwrap();
     
-                        x11rb_state.connection.flush().unwrap();
+                        self.connection.flush().unwrap();
                     } else {
                         println!("unknown client event type {:?}", event.type_);
                     }
@@ -127,7 +124,6 @@ impl CoreStateImplementation for X11RbState {
                 println!("Unknown event: {event:?}");
             }
         }
-    
-        true
+        None
     }
 }

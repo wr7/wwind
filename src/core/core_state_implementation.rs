@@ -4,7 +4,7 @@ use super::{
     STATE_CREATED, 
     CoreStateType, 
     CORE_STATE_TYPE, 
-    CoreStateData
+    CoreStateData, CoreWindow
 };
 
 #[cfg(xcb)]
@@ -31,7 +31,12 @@ pub trait CoreStateImplementation: Sized {
     /// ## Safety
     /// The same window should not be destroyed twice
     unsafe fn destroy_window(&mut self, window: Self::Window);
-    unsafe fn wait_for_events(state: &mut CoreState) -> bool;
+    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent>;
+}
+
+#[derive(Clone, Copy)]
+pub enum WWindCoreEvent {
+    CloseWindow(CoreWindowRef),
 }
 
 /// An enumeration over all of the [CoreStateImplementation]s.
@@ -55,23 +60,28 @@ pub union CoreWindowRef {
     win32: <Win32State as CoreStateImplementation>::Window,
 }
 
+#[cfg(windows)]
+impl From<<Win32State as CoreStateImplementation>::Window> for CoreWindowRef {
+    fn from(win32: <Win32State as CoreStateImplementation>::Window) -> Self {
+        CoreWindowRef {win32}
+    }
+}
+
+#[cfg(xcb)]
+impl From<<XCBState as CoreStateImplementation>::Window> for CoreWindowRef {
+    fn from(xcb: <XCBState as CoreStateImplementation>::Window) -> Self {
+        CoreWindowRef {xcb}
+    }
+}
+
+#[cfg(x11)]
+impl From<<X11RbState as CoreStateImplementation>::Window> for CoreWindowRef {
+    fn from(x11: <X11RbState as CoreStateImplementation>::Window) -> Self {
+        CoreWindowRef {x11}
+    }
+}
+
 impl CoreWindowRef {
-    #[cfg(x11)]
-    pub unsafe fn from_x11(x11: <X11RbState as CoreStateImplementation>::Window) -> Self {
-        Self {x11}
-    }
-    #[cfg(xcb)]
-    pub unsafe fn from_xcb(xcb: <XCBState as CoreStateImplementation>::Window) -> Self {
-        Self {xcb}
-    }
-    #[cfg(windows)]
-    pub unsafe fn from_win32(win32: <Win32State as CoreStateImplementation>::Window)  -> Self {
-        Self {win32}
-    }
-    #[cfg(x11)]
-    pub unsafe fn x11(self) -> <X11RbState as CoreStateImplementation>::Window {
-        self.x11
-    }
     #[cfg(xcb)]
     pub unsafe fn xcb(self) -> <XCBState as CoreStateImplementation>::Window {
         self.xcb
@@ -181,7 +191,7 @@ impl CoreStateImplementation for CoreStateEnum {
                 #[cfg(x11)]
                 CoreStateEnum::X11(x11_state) => Self::Window::from_x11(x11_state.add_window(x, y, height, width, title)?),
                 #[cfg(windows)]
-                CoreStateEnum::Win32(win32_state) => Self::Window::from_win32(win32_state.add_window(x, y, height, width, title)?),
+                CoreStateEnum::Win32(win32_state) => win32_state.add_window(x, y, height, width, title)?.into(),
             };
             Ok(window)
         }
@@ -209,16 +219,16 @@ impl CoreStateImplementation for CoreStateEnum {
         }
     }
 
-    unsafe fn wait_for_events(state: &mut CoreState) -> bool {
-        let core_state_type = CORE_STATE_TYPE.assume_init_ref();
-
-        match core_state_type {
+    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
+        match self {
             #[cfg(xcb)]
             CoreStateType::XCB => XCBState::wait_for_events(state),
             #[cfg(x11)]
             CoreStateType::X11 => X11RbState::wait_for_events(state),
             #[cfg(windows)]
-            CoreStateType::Win32 => Win32State::wait_for_events(state),
+            CoreStateEnum::Win32(s) => {
+                s.wait_for_events()
+            },
         }
     }
 }

@@ -10,6 +10,7 @@ use winapi::um::errhandlingapi::GetLastError;
 use crate::core::core_state_implementation::CoreWindowRef;
 
 use super::CoreStateImplementation;
+use super::core_state_implementation::WWindCoreEvent;
 use winapi::shared::windef::HWND;
 use winapi::shared::minwindef::{HMODULE, WPARAM, LPARAM, LRESULT, UINT};
 use winapi::um::libloaderapi::GetModuleHandleA;
@@ -106,16 +107,18 @@ impl CoreStateImplementation for Win32State {
         DestroyWindow(window);
     }
 
-    unsafe fn wait_for_events(state: &mut super::CoreState) -> bool {
+    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
         // TODO: make GetMessageA close the window when it returns false
         let mut queue = SEND_MESSAGE_QUEUE.write().unwrap();
         if let Some(msg) = queue.pop() {
             let SendMessage::CloseWindow(window) = msg;
 
-            let window_ref = CoreWindowRef::from_win32(window);
+            return Some(WWindCoreEvent::CloseWindow(window.into()));
 
-            super::on_window_close(state, window_ref);
-            return true;
+            // let window_ref = CoreWindowRef::from_win32(window);
+
+            // super::on_window_close(state, window_ref);
+            // return true;
         }
 
         drop(queue);
@@ -123,23 +126,20 @@ impl CoreStateImplementation for Win32State {
         let mut msg = MaybeUninit::<MSG>::uninit();
 
         if GetMessageA(msg.as_mut_ptr(), ptr::null_mut(), 0, 0) == 0 {
-            return false;
+            return None;
         }
         TranslateMessage(msg.as_ptr());
 
         let msg = msg.assume_init();
         match msg.message {
             WM_CLOSE => {
-                println!("c");
-                let window_ref = CoreWindowRef::from_win32(msg.hwnd);
-                super::on_window_close(state, window_ref);
-
-                return true;
+                return Some(WWindCoreEvent::CloseWindow(msg.hwnd.into()));
             },
             e => (),
         }
 
         DefWindowProcA(msg.hwnd, msg.message, msg.wParam, msg.lParam);
-        true
+        
+        None
     }
 }

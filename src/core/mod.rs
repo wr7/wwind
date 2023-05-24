@@ -68,8 +68,14 @@ impl CoreState {
         CoreWindow { core_window_ref, core_state_data }
     }
 
-    pub unsafe fn wait_for_events(&mut self) -> bool {
-        CoreStateEnum::wait_for_events(self)
+    pub unsafe fn wait_for_events(&mut self) {
+        if let Some(event) = CoreStateEnum::wait_for_events(&mut self.get_data().core_state) {
+            match event {
+                core_state_implementation::WWindCoreEvent::CloseWindow(window) => {
+                    on_window_close(self, window)
+                },
+            }
+        }
     }
     pub unsafe fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindow {
         let core_window_ref = self.get_data_mut().core_state.add_window(x, y, height, width, title).unwrap();

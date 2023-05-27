@@ -18,14 +18,21 @@ mod util;
 
 static mut SHOULD_EXIT: bool = false;
 
+#[derive(Clone, Copy, Debug)]
+pub struct WindowPositionData {
+    pub width: u16, pub height: u16,
+    pub x: i16, pub y: i16,
+}
+
 struct WindowData {
     on_close: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, Window<'a>)>>,
 }
 
-impl Default for WindowData {
-    fn default() -> Self {
-        let on_close = None;
-        Self { on_close }
+impl WindowData {
+    pub fn new(width: u16, height: u16) -> Self {
+        Self {
+            on_close: None
+        }
     }
 }
 
@@ -41,6 +48,12 @@ impl Window<'_> {
     }
     pub fn on_window_close<F: for<'a> FnMut(&'a mut WWindState, Window<'a>)+'static>(&mut self, closure: F) {
         self.window.on_window_close_attempt(closure);
+    }
+    pub fn draw_line(&mut self, x1: i16, y1: i16, x2: i16, y2: i16) {
+        self.window.draw_line(x1, y1, x2, y2)
+    }
+    pub fn position_data(&mut self) -> WindowPositionData {
+        self.window.get_position_data()
     }
 }
 

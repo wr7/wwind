@@ -1,4 +1,4 @@
-use crate::{Window, WWindState};
+use crate::{Window, WWindState, WindowPositionData};
 
 use self::{core_state_implementation::{CoreWindowRef, CoreStateEnum}};
 
@@ -74,6 +74,15 @@ impl CoreState {
                 core_state_implementation::WWindCoreEvent::CloseWindow(window) => {
                     on_window_close(self, window)
                 },
+                core_state_implementation::WWindCoreEvent::Expose { window, x, y, width, height } => {
+                    // if let Some(window_data) = self.get_data_mut().windows.get_mut(&window) {
+                    //     window_data.width = x + width;
+                    //     window_data.height = y + height;
+                    // } else {
+                    //     println!("Exposed non-existant window");
+                    // }
+                    // unimplemented
+                },
             }
         }
     }
@@ -81,7 +90,7 @@ impl CoreState {
         let core_window_ref = self.get_data_mut().core_state.add_window(x, y, height, width, title).unwrap();
 
         let windows = &mut self.get_data_mut().windows;
-        windows.insert(core_window_ref, Default::default());
+        windows.insert(core_window_ref, WindowData::new(width, height));
 
         let core_state = self.data.clone();
 
@@ -202,8 +211,23 @@ impl CoreWindow {
             windows_to_destroy.push(core_window_ref);
         }
     }
+    pub fn get_position_data(&self) -> WindowPositionData {
+        let window = self.core_window_ref;
+        self.get_core_state_data().core_state.get_position_data(window)
+    }
+
     pub fn get_core_state_data_mut(&mut self) -> &mut CoreStateData {
         unsafe {self.core_state_data.get().as_mut().unwrap()}
+    }
+
+    pub fn get_core_state_data(&self) -> &CoreStateData {
+        unsafe {self.core_state_data.get().as_ref().unwrap()}
+    }
+
+    pub fn draw_line(&mut self, x1: i16, y1: i16, x2: i16, y2: i16) {
+        let window = self.core_window_ref.clone();
+
+        self.get_core_state_data_mut().core_state.draw_line(window, x1, y1, x2, y2).unwrap()
     }
 
     pub fn on_window_close_attempt<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(&mut self, closure: F) {

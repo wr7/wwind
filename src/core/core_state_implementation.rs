@@ -1,4 +1,6 @@
 use std::{sync::atomic, mem::MaybeUninit, collections::HashMap, cmp::Ordering, hash::Hash, convert::Infallible};
+use crate::WindowPositionData;
+
 use super::{
     CoreState, 
     STATE_CREATED, 
@@ -16,7 +18,6 @@ use super::x11rb::{RbError, X11RbState};
 #[cfg(windows)]
 use super::win32::Win32State;
 
-
 pub trait CoreStateImplementation: Sized {
     /// The error that can occur when initializing the state
     type Error;
@@ -28,15 +29,18 @@ pub trait CoreStateImplementation: Sized {
     unsafe fn new() -> Result<Self, Self::Error>;
     fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error>;
     fn set_window_title(&mut self, window: Self::Window, title: &str);
+    fn get_position_data(&self, window: Self::Window) -> WindowPositionData;
     /// ## Safety
     /// The same window should not be destroyed twice
     unsafe fn destroy_window(&mut self, window: Self::Window);
     unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent>;
+    fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error>;
 }
 
 #[derive(Clone, Copy)]
 pub enum WWindCoreEvent {
     CloseWindow(CoreWindowRef),
+    Expose{window: CoreWindowRef, x: u16, y: u16, width: u16, height: u16},
 }
 
 /// An enumeration over all of the [CoreStateImplementation]s.
@@ -240,6 +244,19 @@ impl CoreStateImplementation for CoreStateEnum {
         }}
     }
 
+    fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error> {
+        unsafe {
+            match self {
+                #[cfg(xcb)]
+                CoreStateEnum::XCB(s) => Ok(s.draw_line(CoreWindowRef::xcb(window), x1, y1, x2, y2)?),
+                #[cfg(x11)]
+                CoreStateEnum::X11(s) => Ok(s.draw_line(CoreWindowRef::x11(window), x1, y1, x2, y2)?),
+                #[cfg(windows)]
+                CoreStateEnum::Win32(s) => Ok(s.draw_line(CoreWindowRef::win32(window), x1, y1, x2, y2)?),
+            }
+        }
+    }
+
     unsafe fn destroy_window(&mut self, window: Self::Window) {
         match self {
             #[cfg(xcb)]
@@ -259,6 +276,19 @@ impl CoreStateImplementation for CoreStateEnum {
             CoreStateEnum::X11(s) => s.wait_for_events(),
             #[cfg(windows)]
             CoreStateEnum::Win32(s) => s.wait_for_events(),
+        }
+    }
+
+    fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
+        unsafe {
+            match self {
+                #[cfg(xcb)]
+                CoreStateEnum::XCB(s) => s.get_position_data(window.xcb()),
+                #[cfg(x11)]
+                CoreStateEnum::X11(s) => s.get_position_data(window.x11()),
+                #[cfg(windows)]
+                CoreStateEnum::Win32(s) => s.get_position_data(window.win32()),
+            }
         }
     }
 }

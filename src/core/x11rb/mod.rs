@@ -1,8 +1,10 @@
+use crate::WindowPositionData;
+
 use super::{CoreStateImplementation, CoreWindowRef, CoreState, core_state_implementation::WWindCoreEvent};
 use x11rb::{
     protocol::{
         Event,
-        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event},
+        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event, ConnectionExt, CreateGCAux, Point, Segment, GetWindowAttributesRequest},
 },
     rust_connection::{RustConnection, ConnectError, ConnectionError, ParseError, ReplyError}, atom_manager, connection::Connection,
 };
@@ -12,6 +14,7 @@ pub use error::RbError;
 
 pub struct X11RbState {
     connection: RustConnection,
+    graphics_context: u32,
     atoms: Atoms,
     screen: Screen,
 }
@@ -39,7 +42,10 @@ impl CoreStateImplementation for X11RbState {
         let atoms = Atoms::new(&connection)?;
         let atoms = atoms.reply()?;
 
-        Ok(Self {connection, atoms, screen})
+        let graphics_context = connection.generate_id()?;
+        connection.create_gc(graphics_context, screen.root, &CreateGCAux::default().foreground(screen.black_pixel).line_width(5))?;
+
+        Ok(Self {connection, atoms, screen, graphics_context})
     }
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {
@@ -53,7 +59,7 @@ impl CoreStateImplementation for X11RbState {
             let window = self.connection.generate_id()?;
 
             let event_mask = EventMask::EXPOSURE;
-            let window_aux = CreateWindowAux::new().event_mask(event_mask).background_pixel(self.screen.black_pixel);
+            let window_aux = CreateWindowAux::new().event_mask(event_mask).background_pixel(self.screen.white_pixel);
 
             let root = self.screen.root;
             let root_visual = self.screen.root_visual;
@@ -76,6 +82,21 @@ impl CoreStateImplementation for X11RbState {
         }
     }
 
+    fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
+        let geometry = self.connection.get_geometry(window).unwrap();
+        let geometry = geometry.reply().unwrap();
+
+        WindowPositionData { width: geometry.width, height: geometry.height, x: geometry.x, y: geometry.y }
+    }
+
+    fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error> {
+        let segment = Segment { x1, y1, x2, y2 };
+
+        self.connection.poly_segment(window, self.graphics_context, &[segment])?;
+        
+        Ok(())
+    }
+
     unsafe fn destroy_window(&mut self, window: Self::Window) {
         destroy_window(&self.connection, window).unwrap();
     }
@@ -89,8 +110,8 @@ impl CoreStateImplementation for X11RbState {
         };
 
         match event {
-            Event::Expose(_) => { // XCB_EXPOSE
-                eprintln!("Expose");
+            Event::Expose(expose) => { // XCB_EXPOSE
+                return Some(WWindCoreEvent::Expose { window: expose.window.into(), x: expose.x, y: expose.y, width: expose.width, height: expose.height });
             },
             Event::ClientMessage(event) => { // XCB_CLIENT_MESSAGE
                 println!("client event");

@@ -1,5 +1,5 @@
 use std::{sync::atomic, mem::MaybeUninit, collections::HashMap, cmp::Ordering, hash::Hash, convert::Infallible};
-use crate::WindowPositionData;
+use crate::{WindowPositionData, RectRegion};
 
 use super::{
     CoreState, 
@@ -27,6 +27,7 @@ pub trait CoreStateImplementation: Sized {
     fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error>;
     fn set_window_title(&mut self, window: Self::Window, title: &str);
     fn get_position_data(&self, window: Self::Window) -> WindowPositionData;
+    fn flush(&mut self) -> Result<(), Self::Error>;
     /// ## Safety
     /// The same window should not be destroyed twice
     unsafe fn destroy_window(&mut self, window: Self::Window);
@@ -37,7 +38,7 @@ pub trait CoreStateImplementation: Sized {
 #[derive(Clone, Copy)]
 pub enum WWindCoreEvent {
     CloseWindow(CoreWindowRef),
-    Expose{window: CoreWindowRef, x: u16, y: u16, width: u16, height: u16},
+    Expose(CoreWindowRef, RectRegion),
 }
 
 /// An enumeration over all of the [CoreStateImplementation]s.
@@ -232,5 +233,15 @@ impl CoreStateImplementation for CoreStateEnum {
                 CoreStateEnum::Win32(s) => s.get_position_data(window.win32()),
             }
         }
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        match self {
+            #[cfg(x11)]
+            CoreStateEnum::X11(s) => s.flush()?,
+            #[cfg(windows)]
+            CoreStateEnum::Win32(s) => s.flush()?,
+        }
+        Ok(())
     }
 }

@@ -9,9 +9,6 @@ use super::{
     CoreStateData, CoreWindow
 };
 
-#[cfg(xcb)]
-use super::xcb::XCBState;
-
 #[cfg(x11)]
 use super::x11rb::{RbError, X11RbState};
 
@@ -45,8 +42,6 @@ pub enum WWindCoreEvent {
 
 /// An enumeration over all of the [CoreStateImplementation]s.
 pub enum CoreStateEnum {
-    #[cfg(xcb)]
-    XCB(XCBState),
     #[cfg(x11)]
     X11(X11RbState),
     #[cfg(windows)]
@@ -56,8 +51,6 @@ pub enum CoreStateEnum {
 /// Represents a reference to a window from any [CoreStateImplementation].
 #[derive(Clone, Copy)]
 pub union CoreWindowRef {
-    #[cfg(xcb)]
-    xcb: <XCBState as CoreStateImplementation>::Window,
     #[cfg(x11)]
     x11: <X11RbState as CoreStateImplementation>::Window,
     #[cfg(windows)]
@@ -71,13 +64,6 @@ impl From<<Win32State as CoreStateImplementation>::Window> for CoreWindowRef {
     }
 }
 
-#[cfg(xcb)]
-impl From<<XCBState as CoreStateImplementation>::Window> for CoreWindowRef {
-    fn from(xcb: <XCBState as CoreStateImplementation>::Window) -> Self {
-        CoreWindowRef {xcb}
-    }
-}
-
 #[cfg(x11)]
 impl From<<X11RbState as CoreStateImplementation>::Window> for CoreWindowRef {
     fn from(x11: <X11RbState as CoreStateImplementation>::Window) -> Self {
@@ -86,10 +72,6 @@ impl From<<X11RbState as CoreStateImplementation>::Window> for CoreWindowRef {
 }
 
 impl CoreWindowRef {
-    #[cfg(xcb)]
-    pub unsafe fn xcb(self) -> <XCBState as CoreStateImplementation>::Window {
-        self.xcb
-    }
     #[cfg(x11)]
     pub unsafe fn x11(self) -> <X11RbState as CoreStateImplementation>::Window {
         self.x11
@@ -109,8 +91,6 @@ impl PartialEq for CoreWindowRef {
             let state_type = CORE_STATE_TYPE.assume_init_ref();
 
             match state_type {
-                #[cfg(xcb)]
-                CoreStateType::XCB => self.xcb() == other.xcb(),
                 #[cfg(x11)]
                 CoreStateType::X11 => self.x11() == other.x11(),
                 #[cfg(windows)]
@@ -132,8 +112,6 @@ impl Hash for CoreWindowRef {
             let state_type = CORE_STATE_TYPE.assume_init_ref();
 
             match state_type {
-                #[cfg(xcb)]
-                CoreStateType::XCB => self.xcb().hash(state),
                 #[cfg(x11)]
                 CoreStateType::X11 => self.x11().hash(state),
                 #[cfg(windows)]
@@ -147,9 +125,6 @@ impl Hash for CoreWindowRef {
 pub enum CoreError {
     #[cfg(x11)]
     RbError(<X11RbState as CoreStateImplementation>::Error),
-    #[cfg(xcb)]
-    XCBError(<XCBState as CoreStateImplementation>::Error),
-    StateExists(),
 }
 
 impl From<Infallible> for CoreError {
@@ -162,13 +137,6 @@ impl From<Infallible> for CoreError {
 impl From<<X11RbState as CoreStateImplementation>::Error> for CoreError {
     fn from(value: <X11RbState as CoreStateImplementation>::Error) -> Self {
         CoreError::RbError(value)
-    }
-}
-
-#[cfg(xcb)]
-impl From<<XCBState as CoreStateImplementation>::Error> for CoreError {
-    fn from(value: <XCBState as CoreStateImplementation>::Error) -> Self {
-        CoreError::XCBError(value)
     }
 }
 
@@ -202,28 +170,12 @@ impl CoreStateImplementation for CoreStateEnum {
             }
         };
 
-        #[cfg(xcb)]
-        let err = {
-            match XCBState::new() {
-                Ok(state) => {
-                    CORE_STATE_TYPE.write(CoreStateType::XCB);
-
-                    let state = CoreStateEnum::XCB(state);
-
-                    return Ok(state)
-                },
-                Err(err) => err,
-            }
-        };
-
         panic!("{err:?}");
     }
 
     fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error> {
         unsafe {
             let window = match self {
-                #[cfg(xcb)]
-                CoreStateEnum::XCB(xcb_state) => xcb_state.add_window(x, y, height, width, title)?.into(),
                 #[cfg(x11)]
                 CoreStateEnum::X11(x11_state) => x11_state.add_window(x, y, height, width, title)?.into(),
                 #[cfg(windows)]
@@ -235,8 +187,6 @@ impl CoreStateImplementation for CoreStateEnum {
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {
         unsafe {match self {
-            #[cfg(xcb)]
-            CoreStateEnum::XCB(xcb_state) => xcb_state.set_window_title(Self::Window::xcb(window), title),
             #[cfg(x11)]
             CoreStateEnum::X11(x11_state) => x11_state.set_window_title(Self::Window::x11(window), title),
             #[cfg(windows)]
@@ -247,8 +197,6 @@ impl CoreStateImplementation for CoreStateEnum {
     fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error> {
         unsafe {
             match self {
-                #[cfg(xcb)]
-                CoreStateEnum::XCB(s) => Ok(s.draw_line(CoreWindowRef::xcb(window), x1, y1, x2, y2)?),
                 #[cfg(x11)]
                 CoreStateEnum::X11(s) => Ok(s.draw_line(CoreWindowRef::x11(window), x1, y1, x2, y2)?),
                 #[cfg(windows)]
@@ -259,8 +207,6 @@ impl CoreStateImplementation for CoreStateEnum {
 
     unsafe fn destroy_window(&mut self, window: Self::Window) {
         match self {
-            #[cfg(xcb)]
-            CoreStateEnum::XCB(s) => s.destroy_window(CoreWindowRef::xcb(window)),
             #[cfg(x11)]
             CoreStateEnum::X11(s) => s.destroy_window(CoreWindowRef::x11(window)),
             #[cfg(windows)]
@@ -270,8 +216,6 @@ impl CoreStateImplementation for CoreStateEnum {
 
     unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
         match self {
-            #[cfg(xcb)]
-            CoreStateEnum::XCB(s) => s.wait_for_events(),
             #[cfg(x11)]
             CoreStateEnum::X11(s) => s.wait_for_events(),
             #[cfg(windows)]
@@ -282,8 +226,6 @@ impl CoreStateImplementation for CoreStateEnum {
     fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
         unsafe {
             match self {
-                #[cfg(xcb)]
-                CoreStateEnum::XCB(s) => s.get_position_data(window.xcb()),
                 #[cfg(x11)]
                 CoreStateEnum::X11(s) => s.get_position_data(window.x11()),
                 #[cfg(windows)]

@@ -1,10 +1,10 @@
-use crate::WindowPositionData;
+use crate::{WindowPositionData, RectRegion};
 
 use super::{CoreStateImplementation, CoreWindowRef, CoreState, core_state_implementation::WWindCoreEvent};
 use x11rb::{
     protocol::{
         Event,
-        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event, ConnectionExt, CreateGCAux, Point, Segment, GetWindowAttributesRequest},
+        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event, ConnectionExt, CreateGCAux, Point, Segment, GetWindowAttributesRequest, BackingStore},
 },
     rust_connection::{RustConnection, ConnectError, ConnectionError, ParseError, ReplyError}, atom_manager, connection::Connection,
 };
@@ -59,7 +59,7 @@ impl CoreStateImplementation for X11RbState {
             let window = self.connection.generate_id()?;
 
             let event_mask = EventMask::EXPOSURE;
-            let window_aux = CreateWindowAux::new().event_mask(event_mask).background_pixel(self.screen.white_pixel);
+            let window_aux = CreateWindowAux::new().event_mask(event_mask).background_pixel(self.screen.white_pixel).backing_store(BackingStore::WHEN_MAPPED);
 
             let root = self.screen.root;
             let root_visual = self.screen.root_visual;
@@ -111,7 +111,9 @@ impl CoreStateImplementation for X11RbState {
 
         match event {
             Event::Expose(expose) => { // XCB_EXPOSE
-                return Some(WWindCoreEvent::Expose { window: expose.window.into(), x: expose.x, y: expose.y, width: expose.width, height: expose.height });
+                let region = RectRegion {x: expose.x, y: expose.y, width: expose.width, height: expose.height};
+                
+                return Some(WWindCoreEvent::Expose(expose.window.into(), region));
             },
             Event::ClientMessage(event) => { // XCB_CLIENT_MESSAGE
                 println!("client event");
@@ -146,5 +148,10 @@ impl CoreStateImplementation for X11RbState {
             }
         }
         None
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.connection.flush()?;
+        Ok(())
     }
 }

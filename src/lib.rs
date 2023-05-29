@@ -4,12 +4,47 @@
 
 //  TODO: 
 // -  remove RC in CoreWindowState
-// -  test library
+//   * RC is leaked when CoreState is dropped
+// -  add support for color modes besides TrueColor
 
+pub struct Color {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
+impl From<Color> for u32 {
+    fn from(value: Color) -> Self {
+        value.blue as u32 | ((value.green as u32) << 8) | ((value.red as u32) << 16)
+    }
+}
+
+impl From<u32> for Color {
+    fn from(value: u32) -> Self {
+        Self::from_hex(value)
+    }
+}
+
+impl Color {
+    pub const fn from_hex(hex: u32) -> Self {
+        Self {
+            blue: (hex & 0xFF) as u8,
+            green: ((hex & 0xFF00) >> 8) as u8,
+            red: (hex & 0xFF0000 >> 16) as u8,
+        }
+    }
+    pub const fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+        }
+    }
+}
 
 
 use crate::core::{CoreWindow, CoreState, CoreStateData};
-use std::{mem, sync::atomic::AtomicBool, collections::HashMap, ptr::{addr_of, addr_of_mut}, marker::PhantomData};
+use std::{mem::{self, transmute_copy}, sync::atomic::AtomicBool, collections::HashMap, ptr::{addr_of, addr_of_mut}, marker::PhantomData};
 
 use util::{PhantomUnsend, ForgetGuard};
 
@@ -92,10 +127,8 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
     
     pub fn run(mut self){
         
-        let mut state = WWindState {state: &mut self.state as *mut CoreState, _unsend: Default::default()};
+        let mut state = WWindState::from_core_state(&mut self.state);
         (self.on_init)(&mut state);
-        mem::forget(state);
-        
 
         unsafe {
             while !SHOULD_EXIT && self.state.do_windows_exist() {
@@ -119,21 +152,27 @@ mod tests {
 
 #[repr(C)]
 pub struct WWindState{
-    state: *mut CoreState,
+    state: CoreState,
     _unsend: PhantomUnsend,
 }
 
 impl WWindState {
     pub(crate) fn from_core_state<'a>(state: &'a mut CoreState) -> ForgetGuard<'a, Self> {
-        ForgetGuard::new(Self {state: state as *mut CoreState, _unsend: Default::default()})
+        let state = state.clone();
+
+        ForgetGuard::new(Self {state, _unsend: Default::default()})
     }
 
     pub fn schedule_exit(&mut self) {
         unsafe {SHOULD_EXIT = true};
     }
+
+    pub fn set_draw_color(&mut self, color: Color) {
+        self.state.set_draw_color(color)
+    }
+
     pub fn add_window<'a>(&'a mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Window<'a> {
-        let core_state = unsafe {self.state.as_mut().unwrap()};
-        let window = unsafe{core_state.add_window(x, y, height, width, title)};
+        let window = unsafe{self.state.add_window(x, y, height, width, title)};
         let _unsend = Default::default();
         let _phantom_data = Default::default();
         

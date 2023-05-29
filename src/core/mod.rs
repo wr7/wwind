@@ -1,4 +1,4 @@
-use crate::{Window, WWindState, WindowPositionData, RectRegion, util::ForgetGuard};
+use crate::{Window, WWindState, WindowPositionData, RectRegion, util::ForgetGuard, Color};
 
 use self::{core_state_implementation::{CoreWindowRef, CoreStateEnum}};
 
@@ -66,6 +66,10 @@ impl CoreState {
         let core_state_data = self.data.clone();
 
         CoreWindow { core_window_ref, core_state_data }
+    }
+
+    pub fn set_draw_color(&mut self, color: Color) {
+        self.get_data_mut().core_state.set_draw_color(color).unwrap();
     }
 
     pub unsafe fn wait_for_events(&mut self) {

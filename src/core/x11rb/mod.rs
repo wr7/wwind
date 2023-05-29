@@ -1,10 +1,10 @@
-use crate::{WindowPositionData, RectRegion};
+use crate::{WindowPositionData, RectRegion, Color};
 
 use super::{CoreStateImplementation, CoreWindowRef, CoreState, core_state_implementation::WWindCoreEvent};
 use x11rb::{
     protocol::{
         Event,
-        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event, ConnectionExt, CreateGCAux, Point, Segment, GetWindowAttributesRequest, BackingStore},
+        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event, ConnectionExt, CreateGCAux, Point, Segment, GetWindowAttributesRequest, BackingStore, Visualtype, ChangeGCAux},
 },
     rust_connection::{RustConnection, ConnectError, ConnectionError, ParseError, ReplyError}, atom_manager, connection::Connection,
 };
@@ -17,6 +17,19 @@ pub struct X11RbState {
     graphics_context: u32,
     atoms: Atoms,
     screen: Screen,
+    visual: Visualtype,
+    red_shift: u8,
+    green_shift: u8,
+    blue_shift: u8,
+}
+
+fn get_first_bit_pos(mut num: u32) -> u8 {
+    let mut pos = 0;
+    while num & 1 == 0 {
+        pos += 1;
+        num = num >> 1;
+    }
+    pos
 }
 
 atom_manager! {
@@ -31,21 +44,59 @@ atom_manager! {
     }
 }
 
+impl X11RbState {
+    #[inline]
+    fn get_color(&self, color: Color) -> u32 {
+        (color.red as u32) << self.red_shift |
+        (color.green as u32) << self.green_shift |
+        (color.blue as u32) << self.blue_shift
+    }
+}
+
 impl CoreStateImplementation for X11RbState {
     type Error = RbError;
     type Window = u32;
 
     unsafe fn new() -> Result<Self, Self::Error> {
         let (connection, screen_number) = x11rb::connect(None)?;
+        
         let screen = connection.setup().roots[screen_number].clone();
+
+        let depth = screen.root_depth;
+        let mut visual = None;
+
+        'outer: // X11 moment
+        for d in screen.allowed_depths.iter() {
+            if d.depth == depth {
+                for v_type in d.visuals.iter() {
+                    if v_type.visual_id == screen.root_visual {
+                        let _ = visual.insert(*v_type);
+                        break 'outer;
+                    }
+                }
+            }
+        }
+
+        let visual = if let Some(visual) = visual {visual} else {
+            todo!("Invalid root visual")
+        };
+
+        // let color = connection.alloc_color(screen.default_colormap, 65535, 0, 0)?.reply()?.pixel;
+        // let color = visual.red_mask * 36 + visual.green_mask * 35 + visual.blue_mask * 38;
+        let red_shift = get_first_bit_pos(visual.red_mask);
+        let green_shift = get_first_bit_pos(visual.green_mask);
+        let blue_shift = get_first_bit_pos(visual.blue_mask);
+
+        // let color = 0x463a22;
+        // let color = (visual.red_mask+1)/256 + (visual.green_mask+1)/256*36 + (visual.blue_mask+1)/256*38;
 
         let atoms = Atoms::new(&connection)?;
         let atoms = atoms.reply()?;
 
         let graphics_context = connection.generate_id()?;
-        connection.create_gc(graphics_context, screen.root, &CreateGCAux::default().foreground(screen.black_pixel).line_width(5))?;
+        connection.create_gc(graphics_context, screen.root, &CreateGCAux::default().foreground(screen.black_pixel).background(screen.black_pixel).line_width(2))?;
 
-        Ok(Self {connection, atoms, screen, graphics_context})
+        Ok(Self {connection, atoms, screen, graphics_context, visual, red_shift, green_shift, blue_shift })
     }
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {
@@ -152,6 +203,15 @@ impl CoreStateImplementation for X11RbState {
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         self.connection.flush()?;
+        Ok(())
+    }
+
+    fn set_draw_color(&mut self, color: Color) -> Result<(), Self::Error> {
+        let color = self.get_color(color);
+
+        let values = ChangeGCAux::new().foreground(color).background(color);
+        self.connection.change_gc(self.graphics_context, &values)?;
+
         Ok(())
     }
 }

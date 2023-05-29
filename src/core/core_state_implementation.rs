@@ -1,5 +1,5 @@
 use std::{sync::atomic, mem::MaybeUninit, collections::HashMap, cmp::Ordering, hash::Hash, convert::Infallible};
-use crate::{WindowPositionData, RectRegion};
+use crate::{WindowPositionData, RectRegion, Color};
 
 use super::{
     CoreState, 
@@ -32,7 +32,11 @@ pub trait CoreStateImplementation: Sized {
     /// The same window should not be destroyed twice
     unsafe fn destroy_window(&mut self, window: Self::Window);
     unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent>;
+
+    // Drawing
+
     fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error>;
+    fn set_draw_color(&mut self, color: Color) -> Result<(), Self::Error>;
 }
 
 #[derive(Clone, Copy)]
@@ -241,6 +245,16 @@ impl CoreStateImplementation for CoreStateEnum {
             CoreStateEnum::X11(s) => s.flush()?,
             #[cfg(windows)]
             CoreStateEnum::Win32(s) => s.flush()?,
+        }
+        Ok(())
+    }
+
+    fn set_draw_color(&mut self, color: Color) -> Result<(), Self::Error> {
+        match self {
+            #[cfg(windows)]
+            CoreStateEnum::Win32(s) => s.set_draw_color(color)?,
+            #[cfg(x11)]
+            CoreStateEnum::X11(s) => s.set_draw_color(color)?,
         }
         Ok(())
     }

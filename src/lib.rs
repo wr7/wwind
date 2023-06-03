@@ -1,15 +1,11 @@
 use crate::core::CoreDrawingContext;
-use crate::core::DrawingContextEnum;
+
 #[allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
-use crate::core::{CoreState, CoreStateData, CoreWindow};
+use crate::core::{CoreState, CoreWindow};
 use std::{
-    collections::HashMap,
     marker::PhantomData,
-    mem::{self, transmute_copy},
-    ptr::{addr_of, addr_of_mut},
-    sync::atomic::AtomicBool,
 };
 
 //  TODO:
@@ -112,7 +108,7 @@ struct WindowData {
 }
 
 impl WindowData {
-    pub fn new(width: u16, height: u16) -> Self {
+    pub fn new(_width: u16, _height: u16) -> Self {
         Self {
             on_close: None,
             redraw: None,
@@ -154,7 +150,7 @@ impl Window<'_> {
         self.window.get_position_data()
     }
 
-    pub fn get_drawing_context<'a>(&'a mut self) -> DrawingContext<'a> {
+    pub fn get_drawing_context(&mut self) -> DrawingContext<'_> {
         DrawingContext::from_core_context(self.window.get_drawing_context())
     }
 }
@@ -192,7 +188,7 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn it_works() {}
@@ -205,7 +201,7 @@ pub struct WWindState {
 }
 
 impl WWindState {
-    pub(crate) fn from_core_state<'a>(state: &'a mut CoreState) -> ForgetGuard<'a, Self> {
+    pub(crate) fn from_core_state(state: &mut CoreState) -> ForgetGuard<'_, Self> {
         let state = state.clone();
 
         ForgetGuard::new(Self {

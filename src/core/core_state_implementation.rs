@@ -1,10 +1,10 @@
 use crate::{Color, RectRegion, WindowPositionData};
 use std::{
-    cmp::Ordering, collections::HashMap, convert::Infallible, hash::Hash, mem::MaybeUninit,
+    convert::Infallible, hash::Hash,
     sync::atomic,
 };
 
-use super::{CoreState, CoreStateData, CoreStateType, CoreWindow, CORE_STATE_TYPE, STATE_CREATED};
+use super::{CoreStateType, CORE_STATE_TYPE, STATE_CREATED};
 
 #[cfg(x11)]
 use super::x11rb::{RbError, X11RbState};
@@ -32,7 +32,7 @@ pub trait CoreStateImplementation: Sized {
         title: &str,
     ) -> Result<Self::Window, Self::Error>;
     fn set_window_title(&mut self, window: Self::Window, title: &str);
-    fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
+    fn get_position_data(&self, _window: Self::Window) -> WindowPositionData {
         unimplemented!()
     }
     fn flush(&mut self) -> Result<(), Self::Error>;
@@ -221,7 +221,7 @@ impl CoreStateImplementation for CoreStateEnum {
 
             let core_state = CoreStateEnum::Win32(win32_state);
 
-            return Ok(core_state);
+            Ok(core_state)
         }
 
         #[cfg(x11)]

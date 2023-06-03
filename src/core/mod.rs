@@ -11,13 +11,9 @@ use super::WindowData;
 use std::{
     cell::UnsafeCell,
     collections::HashMap,
-    ffi::c_void,
-    hash::Hash,
-    mem::{self, MaybeUninit},
-    ops::DerefMut,
-    ptr::{self, addr_of, addr_of_mut},
+    mem::{MaybeUninit},
     rc::Rc,
-    sync::atomic::{self, AtomicBool, Ordering},
+    sync::atomic::{self, AtomicBool},
 };
 
 mod core_state_implementation;
@@ -64,10 +60,10 @@ impl CoreState {
 }
 
 impl CoreState {
-    fn get_calling_details<'a>(
-        &'a mut self,
+    fn get_calling_details(
+        &mut self,
         window_ref: CoreWindowRef,
-    ) -> (ForgetGuard<'a, WWindState>, Window<'a>) {
+    ) -> (ForgetGuard<'_, WWindState>, Window<'_>) {
         let core_window = self.get_window_from_ref(window_ref);
 
         let window = Window::from_core_window(core_window);
@@ -76,11 +72,11 @@ impl CoreState {
         (wwind_state, window)
     }
 
-    fn get_graphical_calling_details<'a>(
-        &'a mut self,
+    fn get_graphical_calling_details(
+        &mut self,
         window_ref: CoreWindowRef,
         context: DrawingContextEnum,
-    ) -> (ForgetGuard<'a, WWindState>, Window<'a>, DrawingContext) {
+    ) -> (ForgetGuard<'_, WWindState>, Window<'_>, DrawingContext) {
         let core_window = self.get_window_from_ref(window_ref);
         let core_context = self.get_core_context(context);
 
@@ -159,7 +155,7 @@ impl CoreState {
                         let context_raw =
                             core_state.get_data_mut().core_state.get_context(window_ref);
 
-                        let (mut wwind_state, window, context) =
+                        let (mut wwind_state, window, _context) =
                             core_state.get_graphical_calling_details(window_ref, context_raw);
 
                         closure(&mut wwind_state, window, region);

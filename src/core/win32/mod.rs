@@ -1,18 +1,18 @@
 use std::convert::Infallible;
-use std::ffi::CString;
+
 use std::mem::MaybeUninit;
-use std::ptr::{addr_of, addr_of_mut};
-use std::sync::RwLock;
+use std::ptr::{addr_of};
+
 use std::{iter, mem, ptr};
 
-use winapi::shared::ntstatus::STATUS_GRAPHICS_INVALID_VIDPN_PRESENT_PATH;
+
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::wingdi::{
-    BeginPath, CreatePen, EndPath, GdiFlush, GetStockObject, LineTo, MoveToEx, SelectObject,
-    SetDCPenColor, StrokeAndFillPath, CLR_INVALID, DC_PEN, HGDI_ERROR, PS_SOLID,
+    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectObject,
+    SetDCPenColor, DC_PEN,
 };
 
-use crate::core::core_state_implementation::CoreWindowRef;
+
 use crate::RectRegion;
 
 use super::core_state_implementation::WWindCoreEvent;
@@ -21,10 +21,9 @@ use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HDC, HPEN, HWND};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
-    BeginPaint, CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, EndPaint, GetDC,
-    GetMessageA, GetUpdateRect, InvalidateRect, PeekMessageA, RegisterClassA, SetWindowTextA,
-    ShowWindow, TranslateMessage, ValidateRect, CS_OWNDC, MSG, PAINTSTRUCT, SW_NORMAL, WM_CLOSE,
-    WM_ERASEBKGND, WM_NCLBUTTONDOWN, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, GetDC,
+    GetMessageA, GetUpdateRect, RegisterClassA, SetWindowTextA,
+    ShowWindow, TranslateMessage, ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
 };
 
 static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;

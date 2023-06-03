@@ -1,57 +1,122 @@
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
-use std::ptr::addr_of;
+use std::ptr::{addr_of, addr_of_mut};
 use std::sync::RwLock;
-use std::{ptr, mem, iter};
+use std::{iter, mem, ptr};
 
+use winapi::shared::ntstatus::STATUS_GRAPHICS_INVALID_VIDPN_PRESENT_PATH;
 use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::wingdi::{
+    BeginPath, CreatePen, EndPath, GdiFlush, GetStockObject, LineTo, MoveToEx, SelectObject,
+    SetDCPenColor, StrokeAndFillPath, CLR_INVALID, DC_PEN, HGDI_ERROR, PS_SOLID,
+};
 
 use crate::core::core_state_implementation::CoreWindowRef;
+use crate::RectRegion;
 
-use super::CoreStateImplementation;
 use super::core_state_implementation::WWindCoreEvent;
-use winapi::shared::windef::HWND;
-use winapi::shared::minwindef::{HMODULE, WPARAM, LPARAM, LRESULT, UINT};
+use super::CoreStateImplementation;
+use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
+use winapi::shared::windef::{HDC, HPEN, HWND};
 use winapi::um::libloaderapi::GetModuleHandleA;
-use winapi::um::winuser::{WNDCLASSA, RegisterClassA, CreateWindowExA, WS_OVERLAPPEDWINDOW, MSG, GetMessageA, TranslateMessage, WM_CLOSE, DefWindowProcA, DestroyWindow, SetWindowTextA, ShowWindow, SW_NORMAL};
+use winapi::um::winuser::{
+    BeginPaint, CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, EndPaint, GetDC,
+    GetMessageA, GetUpdateRect, InvalidateRect, PeekMessageA, RegisterClassA, SetWindowTextA,
+    ShowWindow, TranslateMessage, ValidateRect, CS_OWNDC, MSG, PAINTSTRUCT, SW_NORMAL, WM_CLOSE,
+    WM_ERASEBKGND, WM_NCLBUTTONDOWN, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+};
+
+static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;
 
 pub struct Win32State {
     hinst: HMODULE,
+    pen: HPEN,
 }
 
 #[derive(Debug)]
-enum SendMessage {
+enum WindowsSendMessage {
     CloseWindow(HWND),
+    Paint(HWND, RectRegion),
 }
 
-unsafe impl Sync for SendMessage {}
-unsafe impl Send for SendMessage {}
+unsafe impl Sync for WindowsSendMessage {}
+unsafe impl Send for WindowsSendMessage {}
 
-static SEND_MESSAGE_QUEUE: RwLock<Vec<SendMessage>> = RwLock::new(Vec::new());
+static mut SEND_MESSAGE_QUEUE: Vec<WindowsSendMessage> = Vec::new();
 
-/// Used for "SendMessage" messages. Ugh
-unsafe extern "system" fn window_proc(window: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+/// Neccesary because of "SendMessage" messages. Ugh
+unsafe extern "system" fn window_proc(
+    window: HWND,
+    msg: UINT,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     match msg {
         WM_CLOSE => {
-            dbg!(SEND_MESSAGE_QUEUE.write()).unwrap().push(SendMessage::CloseWindow(window));
-            0
-        },
-        _ => DefWindowProcA(window, msg, wparam, lparam),
+            if let Some(on_event) = ON_EVENT {
+                on_event(WWindCoreEvent::CloseWindow(window.into()));
+            }
+
+            return 0;
+        }
+        WM_PAINT => {
+            if let Some(on_event) = ON_EVENT {
+                let mut rect = MaybeUninit::uninit();
+                let res = GetUpdateRect(window, rect.as_mut_ptr(), 0);
+                let rect = rect.assume_init();
+
+                ValidateRect(window, ptr::null());
+
+                if res == 0 {
+                    return 0;
+                }
+
+                let rect_region = RectRegion {
+                    x: rect.left as u16,
+                    y: rect.bottom as u16,
+                    width: rect.right as u16,
+                    height: rect.top as u16,
+                };
+
+                on_event(WWindCoreEvent::Expose(window.into(), rect_region));
+            } else {
+                ValidateRect(window, ptr::null());
+            }
+        }
+        _ => (),
     }
-} 
+
+    DefWindowProcA(window, msg, wparam, lparam)
+}
+
+#[derive(Clone, Copy)]
+pub struct WindowsDrawingContext {
+    pub context: HDC,
+}
 
 impl CoreStateImplementation for Win32State {
     type Error = Infallible;
 
     type Window = HWND;
 
+    type DrawingContext = WindowsDrawingContext;
+
     unsafe fn new() -> Result<Self, Self::Error> {
         let hinst = GetModuleHandleA(ptr::null());
-        Ok(Win32State {hinst})
+        let pen = GetStockObject(DC_PEN as i32) as *mut _;
+
+        Ok(Win32State { hinst, pen })
     }
 
-    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error> {
+    fn add_window(
+        &mut self,
+        x: i16,
+        y: i16,
+        height: u16,
+        width: u16,
+        title: &str,
+    ) -> Result<Self::Window, Self::Error> {
         const CLASS_NAME: &[u8] = b"WWIND Window\0";
 
         static mut WINDOW_CLASS_REGISTERED: bool = false;
@@ -61,6 +126,7 @@ impl CoreStateImplementation for Win32State {
                 class.lpfnWndProc = Some(window_proc);
                 class.hInstance = self.hinst;
                 class.lpszClassName = CLASS_NAME.as_ptr() as *const i8;
+                class.style = CS_OWNDC;
 
                 RegisterClassA(addr_of!(class));
 
@@ -71,75 +137,127 @@ impl CoreStateImplementation for Win32State {
         println!("b");
 
         // C String moment
-        let title: Vec<i8> = title.as_bytes().iter().copied().filter(|&b| b != 0).chain(iter::once(0)).map(|n| n as i8).collect();
+        let title: Vec<i8> = title
+            .as_bytes()
+            .iter()
+            .copied()
+            .filter(|&b| b != 0)
+            .chain(iter::once(0))
+            .map(|n| n as i8)
+            .collect();
 
-        let window = unsafe {CreateWindowExA(
-            0, 
-            dbg!(CLASS_NAME.as_ptr() as *const i8), 
-            dbg!(title.as_ptr()), 
-            WS_OVERLAPPEDWINDOW, 
-            x as i32, y as i32, 
-            width as i32, height as i32, 
-            ptr::null_mut(), 
-            ptr::null_mut(), 
-            self.hinst, 
-            ptr::null_mut()
-        )};
+        let window = unsafe {
+            CreateWindowExA(
+                0,
+                dbg!(CLASS_NAME.as_ptr() as *const i8),
+                dbg!(title.as_ptr()),
+                WS_OVERLAPPEDWINDOW,
+                x as i32,
+                y as i32,
+                width as i32,
+                height as i32,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                self.hinst,
+                ptr::null_mut(),
+            )
+        };
 
-        println!("{}", unsafe {GetLastError()});
+        println!("{}", unsafe { GetLastError() });
+
+        unsafe {
+            let dc = GetDC(window);
+            SelectObject(dc, self.pen as *mut _);
+        }
 
         println!("c");
         dbg!(window);
 
-        unsafe {ShowWindow(dbg!(window), SW_NORMAL)};
+        unsafe { ShowWindow(dbg!(window), SW_NORMAL) };
 
         Ok(window)
     }
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {
         // C-String moment
-        let title_vec: Vec<i8> = title.as_bytes().iter().copied().filter(|&b| b != 0).chain(iter::once(0)).map(|n| n as i8).collect();
+        let title_vec: Vec<i8> = title
+            .as_bytes()
+            .iter()
+            .copied()
+            .filter(|&b| b != 0)
+            .chain(iter::once(0))
+            .map(|n| n as i8)
+            .collect();
 
-        unsafe {SetWindowTextA(window, title_vec.as_ptr())};
+        unsafe { SetWindowTextA(window, title_vec.as_ptr()) };
     }
 
     unsafe fn destroy_window(&mut self, window: Self::Window) {
         DestroyWindow(window);
     }
 
-    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
+    unsafe fn wait_for_events(&mut self, on_event: &mut unsafe fn(WWindCoreEvent)) {
         // TODO: make GetMessageA close the window when it returns false
-        let mut queue = SEND_MESSAGE_QUEUE.write().unwrap();
-        if let Some(msg) = queue.pop() {
-            let SendMessage::CloseWindow(window) = msg;
 
-            return Some(WWindCoreEvent::CloseWindow(window.into()));
+        ON_EVENT = Some(*on_event);
 
-            // let window_ref = CoreWindowRef::from_win32(window);
-
-            // super::on_window_close(state, window_ref);
-            // return true;
-        }
-
-        drop(queue);
-
-        let mut msg = MaybeUninit::<MSG>::uninit();
+        let mut msg = MaybeUninit::uninit();
 
         if GetMessageA(msg.as_mut_ptr(), ptr::null_mut(), 0, 0) == 0 {
-            return None;
+            return;
         }
+
         TranslateMessage(msg.as_ptr());
+        DispatchMessageA(msg.as_ptr());
+    }
 
-        let msg = msg.assume_init();
-        match msg.message {
-            WM_CLOSE => {
-                return Some(WWindCoreEvent::CloseWindow(msg.hwnd.into()));
-            },
-            e => (),
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            GdiFlush();
+        }
+        Ok(())
+    }
+
+    fn draw_line(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        x1: u16,
+        y1: u16,
+        x2: u16,
+        y2: u16,
+    ) -> Result<(), Self::Error> {
+        unsafe {
+            // BeginPath(drawing_context.context);
+
+            MoveToEx(
+                drawing_context.context,
+                x1 as i32,
+                y1 as i32,
+                ptr::null_mut(),
+            );
+
+            LineTo(drawing_context.context, x2 as i32, y2 as i32);
+
+            // StrokeAndFillPath(drawing_context.context);
+
+            // EndPath(drawing_context.context);
         }
 
-        DefWindowProcA(msg.hwnd, msg.message, msg.wParam, msg.lParam);
-        
-        None
+        Ok(())
+    }
+
+    unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext {
+        let context = GetDC(window);
+
+        Self::DrawingContext { context }
+    }
+
+    fn set_draw_color(
+        &mut self,
+        context: Self::DrawingContext,
+        color: crate::Color,
+    ) -> Result<(), Self::Error> {
+        unsafe { SetDCPenColor(context.context, color.into()) };
+        Ok(())
     }
 }

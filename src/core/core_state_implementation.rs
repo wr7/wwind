@@ -1,13 +1,10 @@
-use std::{sync::atomic, mem::MaybeUninit, collections::HashMap, cmp::Ordering, hash::Hash, convert::Infallible};
-use crate::{WindowPositionData, RectRegion, Color};
-
-use super::{
-    CoreState, 
-    STATE_CREATED, 
-    CoreStateType, 
-    CORE_STATE_TYPE, 
-    CoreStateData, CoreWindow
+use crate::{Color, RectRegion, WindowPositionData};
+use std::{
+    cmp::Ordering, collections::HashMap, convert::Infallible, hash::Hash, mem::MaybeUninit,
+    sync::atomic,
 };
+
+use super::{CoreState, CoreStateData, CoreStateType, CoreWindow, CORE_STATE_TYPE, STATE_CREATED};
 
 #[cfg(x11)]
 use super::x11rb::{RbError, X11RbState};
@@ -20,23 +17,45 @@ pub trait CoreStateImplementation: Sized {
     type Error;
     /// The type internally used to represent a window
     type Window: Sized + Copy;
+    /// Something that you can draw on
+    type DrawingContext: Sized + Copy;
 
     /// ## Safety
     /// Should not be called while another CoreStateImplementation exists
     unsafe fn new() -> Result<Self, Self::Error>;
-    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error>;
+    fn add_window(
+        &mut self,
+        x: i16,
+        y: i16,
+        height: u16,
+        width: u16,
+        title: &str,
+    ) -> Result<Self::Window, Self::Error>;
     fn set_window_title(&mut self, window: Self::Window, title: &str);
-    fn get_position_data(&self, window: Self::Window) -> WindowPositionData;
+    fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
+        unimplemented!()
+    }
     fn flush(&mut self) -> Result<(), Self::Error>;
     /// ## Safety
     /// The same window should not be destroyed twice
     unsafe fn destroy_window(&mut self, window: Self::Window);
-    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent>;
+    unsafe fn wait_for_events(&mut self, on_event: &mut unsafe fn(WWindCoreEvent));
 
     // Drawing
-
-    fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error>;
-    fn set_draw_color(&mut self, color: Color) -> Result<(), Self::Error>;
+    unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext;
+    fn draw_line(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        x1: u16,
+        y1: u16,
+        x2: u16,
+        y2: u16,
+    ) -> Result<(), Self::Error>;
+    fn set_draw_color(
+        &mut self,
+        context: Self::DrawingContext,
+        color: Color,
+    ) -> Result<(), Self::Error>;
 }
 
 #[derive(Clone, Copy)]
@@ -65,14 +84,14 @@ pub union CoreWindowRef {
 #[cfg(windows)]
 impl From<<Win32State as CoreStateImplementation>::Window> for CoreWindowRef {
     fn from(win32: <Win32State as CoreStateImplementation>::Window) -> Self {
-        CoreWindowRef {win32}
+        CoreWindowRef { win32 }
     }
 }
 
 #[cfg(x11)]
 impl From<<X11RbState as CoreStateImplementation>::Window> for CoreWindowRef {
     fn from(x11: <X11RbState as CoreStateImplementation>::Window) -> Self {
-        CoreWindowRef {x11}
+        CoreWindowRef { x11 }
     }
 }
 
@@ -102,6 +121,47 @@ impl PartialEq for CoreWindowRef {
                 CoreStateType::Win32 => self.win32 == other.win32(),
             }
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum DrawingContextEnum {
+    #[cfg(x11)]
+    X11(<X11RbState as CoreStateImplementation>::DrawingContext),
+    #[cfg(windows)]
+    Win32(<Win32State as CoreStateImplementation>::DrawingContext),
+}
+
+impl DrawingContextEnum {
+    #[cfg(x11)]
+    unsafe fn x11(self) -> <X11RbState as CoreStateImplementation>::DrawingContext {
+        if let Self::X11(context) = self {
+            context
+        } else {
+            panic!()
+        }
+    }
+    #[cfg(windows)]
+    unsafe fn win32(self) -> <Win32State as CoreStateImplementation>::DrawingContext {
+        if let Self::Win32(context) = self {
+            context
+        } else {
+            panic!()
+        }
+    }
+}
+
+#[cfg(windows)]
+impl From<<Win32State as CoreStateImplementation>::DrawingContext> for DrawingContextEnum {
+    fn from(value: <Win32State as CoreStateImplementation>::DrawingContext) -> Self {
+        Self::Win32(value)
+    }
+}
+
+#[cfg(x11)]
+impl From<<X11RbState as CoreStateImplementation>::DrawingContext> for DrawingContextEnum {
+    fn from(value: <X11RbState as CoreStateImplementation>::DrawingContext) -> Self {
+        Self::Win32(value)
     }
 }
 
@@ -150,11 +210,14 @@ impl CoreStateImplementation for CoreStateEnum {
 
     type Window = CoreWindowRef;
 
+    type DrawingContext = DrawingContextEnum;
+
     unsafe fn new() -> Result<Self, Self::Error> {
-        #[cfg(windows)] {
+        #[cfg(windows)]
+        {
             CORE_STATE_TYPE.write(CoreStateType::Win32);
 
-            let win32_state = unsafe {Win32State::new().unwrap()};
+            let win32_state = unsafe { Win32State::new().unwrap() };
 
             let core_state = CoreStateEnum::Win32(win32_state);
 
@@ -169,43 +232,69 @@ impl CoreStateImplementation for CoreStateEnum {
 
                     let state = CoreStateEnum::X11(state);
 
-                    return Ok(state)
-                },
+                    return Ok(state);
+                }
                 Err(err) => err,
             }
         };
 
-        panic!("{err:?}");
+        // panic!("{err:?}");
     }
 
-    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error> {
+    fn add_window(
+        &mut self,
+        x: i16,
+        y: i16,
+        height: u16,
+        width: u16,
+        title: &str,
+    ) -> Result<Self::Window, Self::Error> {
         unsafe {
             let window = match self {
                 #[cfg(x11)]
-                CoreStateEnum::X11(x11_state) => x11_state.add_window(x, y, height, width, title)?.into(),
+                CoreStateEnum::X11(x11_state) => {
+                    x11_state.add_window(x, y, height, width, title)?.into()
+                }
                 #[cfg(windows)]
-                CoreStateEnum::Win32(win32_state) => win32_state.add_window(x, y, height, width, title)?.into(),
+                CoreStateEnum::Win32(win32_state) => {
+                    win32_state.add_window(x, y, height, width, title)?.into()
+                }
             };
             Ok(window)
         }
     }
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {
-        unsafe {match self {
-            #[cfg(x11)]
-            CoreStateEnum::X11(x11_state) => x11_state.set_window_title(Self::Window::x11(window), title),
-            #[cfg(windows)]
-            CoreStateEnum::Win32(win32_state) => win32_state.set_window_title(Self::Window::win32(window), title)
-        }}
-    }
-
-    fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error> {
         unsafe {
             match self {
                 #[cfg(x11)]
-                CoreStateEnum::X11(s) => Ok(s.draw_line(CoreWindowRef::x11(window), x1, y1, x2, y2)?),
+                CoreStateEnum::X11(x11_state) => {
+                    x11_state.set_window_title(Self::Window::x11(window), title)
+                }
                 #[cfg(windows)]
-                CoreStateEnum::Win32(s) => Ok(s.draw_line(CoreWindowRef::win32(window), x1, y1, x2, y2)?),
+                CoreStateEnum::Win32(win32_state) => {
+                    win32_state.set_window_title(Self::Window::win32(window), title)
+                }
+            }
+        }
+    }
+
+    fn draw_line(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        x1: u16,
+        y1: u16,
+        x2: u16,
+        y2: u16,
+    ) -> Result<(), Self::Error> {
+        unsafe {
+            match self {
+                #[cfg(x11)]
+                CoreStateEnum::X11(s) => Ok(s.draw_line(drawing_context.x11(), x1, y1, x2, y2)?),
+                #[cfg(windows)]
+                CoreStateEnum::Win32(s) => {
+                    Ok(s.draw_line(drawing_context.win32(), x1, y1, x2, y2)?)
+                }
             }
         }
     }
@@ -219,12 +308,12 @@ impl CoreStateImplementation for CoreStateEnum {
         }
     }
 
-    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
+    unsafe fn wait_for_events(&mut self, on_event: &mut unsafe fn(WWindCoreEvent)) {
         match self {
             #[cfg(x11)]
-            CoreStateEnum::X11(s) => s.wait_for_events(),
+            CoreStateEnum::X11(s) => s.wait_for_events(on_event),
             #[cfg(windows)]
-            CoreStateEnum::Win32(s) => s.wait_for_events(),
+            CoreStateEnum::Win32(s) => s.wait_for_events(on_event),
         }
     }
 
@@ -249,13 +338,28 @@ impl CoreStateImplementation for CoreStateEnum {
         Ok(())
     }
 
-    fn set_draw_color(&mut self, color: Color) -> Result<(), Self::Error> {
-        match self {
-            #[cfg(windows)]
-            CoreStateEnum::Win32(s) => s.set_draw_color(color)?,
-            #[cfg(x11)]
-            CoreStateEnum::X11(s) => s.set_draw_color(color)?,
+    fn set_draw_color(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        color: Color,
+    ) -> Result<(), Self::Error> {
+        unsafe {
+            match self {
+                #[cfg(windows)]
+                CoreStateEnum::Win32(s) => s.set_draw_color(drawing_context.win32(), color)?,
+                #[cfg(x11)]
+                CoreStateEnum::X11(s) => s.set_draw_color(drawing_context.x11(), color)?,
+            }
         }
         Ok(())
+    }
+
+    unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext {
+        match self {
+            #[cfg(windows)]
+            CoreStateEnum::Win32(s) => s.get_context(window.win32()).into(),
+            #[cfg(x11)]
+            CoreStateEnum::X11(s) => s.begin_paint(window.x11()).into(),
+        }
     }
 }

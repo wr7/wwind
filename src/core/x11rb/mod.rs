@@ -56,6 +56,7 @@ impl X11RbState {
 impl CoreStateImplementation for X11RbState {
     type Error = RbError;
     type Window = u32;
+    type DrawingContext = Self::Window;
 
     unsafe fn new() -> Result<Self, Self::Error> {
         let (connection, screen_number) = x11rb::connect(None)?;

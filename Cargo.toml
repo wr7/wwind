@@ -21,4 +21,4 @@ default = ["x11"]
 x11 = ["dep:x11rb"]
 
 [dependencies]
-winapi = { version = "0.3.9", features = ["libloaderapi", "errhandlingapi"] }
+winapi = { version = "0.3.9", features = ["libloaderapi", "errhandlingapi", "wingdi"] }

@@ -1,26 +1,37 @@
-use crate::{Window, WWindState, WindowPositionData, RectRegion, util::ForgetGuard, Color};
+use crate::{
+    util::ForgetGuard, Color, DrawingContext, RectRegion, WWindState, Window, WindowPositionData,
+};
 
-use self::{core_state_implementation::{CoreWindowRef, CoreStateEnum}};
-
-#[cfg(xcb)]
-use self::xcb::XCBState;
+use self::core_state_implementation::{CoreStateEnum, CoreWindowRef, WWindCoreEvent};
 
 #[cfg(x11)]
 use self::x11rb::X11RbState;
 
 use super::WindowData;
-use std::{ffi::c_void, collections::HashMap, mem::{MaybeUninit, self}, ptr::{addr_of_mut, addr_of}, sync::atomic::{self, AtomicBool, Ordering}, hash::Hash, cell::UnsafeCell, rc::Rc, ops::DerefMut};
+use std::{
+    cell::UnsafeCell,
+    collections::HashMap,
+    ffi::c_void,
+    hash::Hash,
+    mem::{self, MaybeUninit},
+    ops::DerefMut,
+    ptr::{self, addr_of, addr_of_mut},
+    rc::Rc,
+    sync::atomic::{self, AtomicBool, Ordering},
+};
 
 mod core_state_implementation;
 
 pub use core_state_implementation::CoreStateImplementation;
 
-#[cfg(xcb)]
-mod xcb;
-#[cfg(x11)]
-mod x11rb;
 #[cfg(windows)]
 mod win32;
+#[cfg(x11)]
+mod x11rb;
+#[cfg(xcb)]
+mod xcb;
+
+pub use core_state_implementation::DrawingContextEnum;
 
 #[derive(Clone)]
 pub struct CoreState {
@@ -35,7 +46,7 @@ pub struct CoreStateData {
 
 impl CoreState {
     fn get_data_mut(&mut self) -> &mut CoreStateData {
-        unsafe {self.data.get().as_mut().unwrap_unchecked()}
+        unsafe { self.data.get().as_mut().unwrap_unchecked() }
     }
 
     unsafe fn get_data(&self) -> &mut CoreStateData {
@@ -53,7 +64,10 @@ impl CoreState {
 }
 
 impl CoreState {
-    fn get_calling_details<'a>(&'a mut self, window_ref: CoreWindowRef) -> (ForgetGuard<'a, WWindState>, Window<'a>) {
+    fn get_calling_details<'a>(
+        &'a mut self,
+        window_ref: CoreWindowRef,
+    ) -> (ForgetGuard<'a, WWindState>, Window<'a>) {
         let core_window = self.get_window_from_ref(window_ref);
 
         let window = Window::from_core_window(core_window);
@@ -62,71 +76,133 @@ impl CoreState {
         (wwind_state, window)
     }
 
+    fn get_graphical_calling_details<'a>(
+        &'a mut self,
+        window_ref: CoreWindowRef,
+        context: DrawingContextEnum,
+    ) -> (ForgetGuard<'a, WWindState>, Window<'a>, DrawingContext) {
+        let core_window = self.get_window_from_ref(window_ref);
+        let core_context = self.get_core_context(context);
+
+        let context = DrawingContext::from_core_context(core_context);
+        let window = Window::from_core_window(core_window);
+        let wwind_state = WWindState::from_core_state(self);
+
+        (wwind_state, window, context)
+    }
+
     pub fn get_window_from_ref(&self, core_window_ref: CoreWindowRef) -> CoreWindow {
         let core_state_data = self.data.clone();
 
-        CoreWindow { core_window_ref, core_state_data }
+        CoreWindow {
+            core_window_ref,
+            core_state_data,
+        }
     }
 
-    pub fn set_draw_color(&mut self, color: Color) {
-        self.get_data_mut().core_state.set_draw_color(color).unwrap();
+    pub fn get_core_context(&self, context: DrawingContextEnum) -> CoreDrawingContext {
+        CoreDrawingContext {
+            context,
+            core_state_data: self.data.clone(),
+        }
     }
 
     pub unsafe fn wait_for_events(&mut self) {
-        if let Some(event) = CoreStateEnum::wait_for_events(&mut self.get_data().core_state) {
+        static mut CORE_STATE: MaybeUninit<CoreState> = MaybeUninit::uninit();
+        CORE_STATE = MaybeUninit::new(self.clone());
+
+        let core_state = &mut self.get_data_mut().core_state;
+
+        core_state.wait_for_events(&mut (on_event as unsafe fn(WWindCoreEvent)));
+
+        unsafe fn on_event(event: WWindCoreEvent) {
+            let core_state = CORE_STATE.assume_init_mut();
+
             match event {
                 core_state_implementation::WWindCoreEvent::CloseWindow(window_ref) => {
-                    if let Some(window_data) = self.get_data_mut().windows.get_mut(&window_ref) {
+                    if let Some(window_data) =
+                        core_state.get_data_mut().windows.get_mut(&window_ref)
+                    {
                         let closure = window_data.on_close.take();
-                        let mut closure = if let Some(closure) = closure {closure} else {
-                            let mut window = self.get_window_from_ref(window_ref);
+                        let mut closure = if let Some(closure) = closure {
+                            closure
+                        } else {
+                            let mut window = core_state.get_window_from_ref(window_ref);
                             window.schedule_window_destruction();
                             return;
                         };
 
-                        let (mut wwind_state, window) = self.get_calling_details(window_ref);
+                        let (mut wwind_state, window) = core_state.get_calling_details(window_ref);
 
                         closure(&mut wwind_state, window);
-                        
-                        self.get_data_mut().windows.get_mut(&window_ref).map(|data| data.on_close.insert(closure));
+
+                        core_state
+                            .get_data_mut()
+                            .windows
+                            .get_mut(&window_ref)
+                            .map(|data| data.on_close.insert(closure));
                     } else {
                         println!("Exposed non-existant window");
                     }
-                },
+                }
                 core_state_implementation::WWindCoreEvent::Expose(window_ref, region) => {
-                    if let Some(window_data) = self.get_data_mut().windows.get_mut(&window_ref) {
+                    if let Some(window_data) =
+                        core_state.get_data_mut().windows.get_mut(&window_ref)
+                    {
                         let closure = window_data.redraw.take();
-                        let mut closure = if let Some(closure) = closure {closure} else {
+                        let mut closure = if let Some(closure) = closure {
+                            closure
+                        } else {
                             return;
                         };
 
-                        let (mut wwind_state, window) = self.get_calling_details(window_ref);
+                        let context_raw =
+                            core_state.get_data_mut().core_state.get_context(window_ref);
+
+                        let (mut wwind_state, window, context) =
+                            core_state.get_graphical_calling_details(window_ref, context_raw);
 
                         closure(&mut wwind_state, window, region);
-                        
-                        self.get_data_mut().windows.get_mut(&window_ref).map(|data| data.redraw.insert(closure));
+
+                        core_state
+                            .get_data_mut()
+                            .windows
+                            .get_mut(&window_ref)
+                            .map(|data| data.redraw.insert(closure));
                     } else {
                         println!("Exposed non-existant window");
                     }
-                },
+                }
             }
-
-            let _ = self.get_data_mut().core_state.flush();
         }
     }
-    pub unsafe fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> CoreWindow {
-        let core_window_ref = self.get_data_mut().core_state.add_window(x, y, height, width, title).unwrap();
+    pub unsafe fn add_window(
+        &mut self,
+        x: i16,
+        y: i16,
+        height: u16,
+        width: u16,
+        title: &str,
+    ) -> CoreWindow {
+        let core_window_ref = self
+            .get_data_mut()
+            .core_state
+            .add_window(x, y, height, width, title)
+            .unwrap();
 
         let windows = &mut self.get_data_mut().windows;
         windows.insert(core_window_ref, WindowData::new(width, height));
 
         let core_state = self.data.clone();
 
-        CoreWindow {core_state_data: core_state, core_window_ref}
+        CoreWindow {
+            core_state_data: core_state,
+            core_window_ref,
+        }
     }
 
-    pub fn do_windows_exist(&self) -> bool{
-        !unsafe{self.get_data()}.windows.is_empty()
+    pub fn do_windows_exist(&self) -> bool {
+        !unsafe { self.get_data() }.windows.is_empty()
     }
 
     /// Destroys the windows that were scheduled for deletion
@@ -164,14 +240,19 @@ static mut CORE_STATE_TYPE: MaybeUninit<CoreStateType> = MaybeUninit::uninit();
 impl CoreState {
     pub fn new() -> Option<Self> {
         if !STATE_CREATED.fetch_or(true, atomic::Ordering::Acquire) {
-
-            let core_state = unsafe{CoreStateEnum::new()}.unwrap();
+            let core_state = unsafe { CoreStateEnum::new() }.unwrap();
             let windows = HashMap::new();
             let windows_to_destroy = Vec::new();
 
-            let data = CoreStateData {core_state, windows, windows_to_destroy};
+            let data = CoreStateData {
+                core_state,
+                windows,
+                windows_to_destroy,
+            };
 
-            Some(CoreState {data: Rc::new(UnsafeCell::new(data))})
+            Some(CoreState {
+                data: Rc::new(UnsafeCell::new(data)),
+            })
         } else {
             None
         }
@@ -185,6 +266,35 @@ impl Drop for CoreState {
 
             STATE_CREATED.store(false, atomic::Ordering::Release);
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct CoreDrawingContext {
+    context: DrawingContextEnum,
+    core_state_data: Rc<UnsafeCell<CoreStateData>>,
+}
+
+impl CoreDrawingContext {
+    fn get_core_state_data_mut(&mut self) -> &mut CoreStateData {
+        unsafe { &mut (*self.core_state_data.get()) }
+    }
+
+    pub fn set_draw_color(&mut self, color: Color) {
+        let context = self.context;
+
+        self.get_core_state_data_mut()
+            .core_state
+            .set_draw_color(context, color);
+    }
+
+    pub fn draw_line(&mut self, x1: u16, y1: u16, x2: u16, y2: u16) {
+        let context = self.context;
+
+        self.get_core_state_data_mut()
+            .core_state
+            .draw_line(context, x1, y1, x2, y2)
+            .unwrap()
     }
 }
 
@@ -214,32 +324,51 @@ impl CoreWindow {
     }
     pub fn get_position_data(&self) -> WindowPositionData {
         let window = self.core_window_ref;
-        self.get_core_state_data().core_state.get_position_data(window)
+        self.get_core_state_data()
+            .core_state
+            .get_position_data(window)
     }
 
     pub fn get_core_state_data_mut(&mut self) -> &mut CoreStateData {
-        unsafe {self.core_state_data.get().as_mut().unwrap()}
+        unsafe { self.core_state_data.get().as_mut().unwrap() }
     }
 
     pub fn get_core_state_data(&self) -> &CoreStateData {
-        unsafe {self.core_state_data.get().as_ref().unwrap()}
+        unsafe { self.core_state_data.get().as_ref().unwrap() }
     }
 
-    pub fn draw_line(&mut self, x1: i16, y1: i16, x2: i16, y2: i16) {
-        let window = self.core_window_ref.clone();
-
-        self.get_core_state_data_mut().core_state.draw_line(window, x1, y1, x2, y2).unwrap()
-    }
-
-    pub fn on_window_close_attempt<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(&mut self, closure: F) {
+    pub fn on_window_close_attempt<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(
+        &mut self,
+        closure: F,
+    ) {
         let window_ref = self.core_window_ref;
 
-        self.get_core_state_data_mut().windows.get_mut(&window_ref).map(|data| data.on_close = Some(Box::new(closure)));
+        self.get_core_state_data_mut()
+            .windows
+            .get_mut(&window_ref)
+            .map(|data| data.on_close = Some(Box::new(closure)));
     }
 
-    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, Window<'a>, RectRegion)+'static>(&mut self, closure: F) {
+    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, Window<'a>, RectRegion) + 'static>(
+        &mut self,
+        closure: F,
+    ) {
         let window_ref = self.core_window_ref;
 
-        self.get_core_state_data_mut().windows.get_mut(&window_ref).map(|data| data.redraw = Some(Box::new(closure)));
+        self.get_core_state_data_mut()
+            .windows
+            .get_mut(&window_ref)
+            .map(|data| data.redraw = Some(Box::new(closure)));
+    }
+
+    pub fn get_drawing_context(&mut self) -> CoreDrawingContext {
+        let window_ref = self.core_window_ref;
+        let core_state = &mut self.get_core_state_data_mut().core_state;
+        unsafe {
+            CoreDrawingContext {
+                context: core_state.get_context(window_ref),
+                core_state_data: self.core_state_data.clone(),
+            }
+        }
     }
 }

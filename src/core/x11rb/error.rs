@@ -1,4 +1,7 @@
-use x11rb::{rust_connection::{ConnectError, ConnectionError, ParseError, ReplyError, ReplyOrIdError}, x11_utils::X11Error};
+use x11rb::{
+    rust_connection::{ConnectError, ConnectionError, ParseError, ReplyError, ReplyOrIdError},
+    x11_utils::X11Error,
+};
 
 #[derive(Debug)]
 pub enum RbError {

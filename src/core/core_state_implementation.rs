@@ -1,4 +1,4 @@
-use crate::{Color, RectRegion, WindowPositionData};
+use crate::{Color, RectRegion};
 use std::{convert::Infallible, hash::Hash, sync::atomic};
 
 use super::core_state::{CoreStateType, CORE_STATE_TYPE, STATE_CREATED};

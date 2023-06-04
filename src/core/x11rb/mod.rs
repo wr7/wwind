@@ -1,12 +1,21 @@
-use crate::{WindowPositionData, RectRegion, Color};
+use crate::{Color, RectRegion, WindowPositionData};
 
-use super::{CoreStateImplementation, CoreWindowRef, CoreState, core_state_implementation::WWindCoreEvent};
+use super::{
+    core_state_implementation::WWindCoreEvent, CoreState, CoreStateImplementation, CoreWindowRef,
+};
 use x11rb::{
+    atom_manager,
+    connection::Connection,
     protocol::{
+        xproto::{
+            self, change_property, create_window, destroy_window, map_window, send_event,
+            BackingStore, ChangeGCAux, ConnectionExt, CreateGCAux, CreateWindowAux, EventMask,
+            GetWindowAttributesRequest, Point, PropMode, Screen, Segment, Visualtype, WindowClass,
+            CLIENT_MESSAGE_EVENT, EXPOSE_EVENT,
+        },
         Event,
-        xproto::{self, PropMode, EventMask, CreateWindowAux, Screen, create_window, WindowClass, map_window, change_property, destroy_window, EXPOSE_EVENT, CLIENT_MESSAGE_EVENT, send_event, ConnectionExt, CreateGCAux, Point, Segment, GetWindowAttributesRequest, BackingStore, Visualtype, ChangeGCAux},
-},
-    rust_connection::{RustConnection, ConnectError, ConnectionError, ParseError, ReplyError}, atom_manager, connection::Connection,
+    },
+    rust_connection::{ConnectError, ConnectionError, ParseError, ReplyError, RustConnection},
 };
 
 mod error;
@@ -47,9 +56,9 @@ atom_manager! {
 impl X11RbState {
     #[inline]
     fn get_color(&self, color: Color) -> u32 {
-        (color.red as u32) << self.red_shift |
-        (color.green as u32) << self.green_shift |
-        (color.blue as u32) << self.blue_shift
+        (color.red as u32) << self.red_shift
+            | (color.green as u32) << self.green_shift
+            | (color.blue as u32) << self.blue_shift
     }
 }
 
@@ -60,7 +69,7 @@ impl CoreStateImplementation for X11RbState {
 
     unsafe fn new() -> Result<Self, Self::Error> {
         let (connection, screen_number) = x11rb::connect(None)?;
-        
+
         let screen = connection.setup().roots[screen_number].clone();
 
         let depth = screen.root_depth;
@@ -78,7 +87,9 @@ impl CoreStateImplementation for X11RbState {
             }
         }
 
-        let visual = if let Some(visual) = visual {visual} else {
+        let visual = if let Some(visual) = visual {
+            visual
+        } else {
             todo!("Invalid root visual")
         };
 
@@ -95,28 +106,76 @@ impl CoreStateImplementation for X11RbState {
         let atoms = atoms.reply()?;
 
         let graphics_context = connection.generate_id()?;
-        connection.create_gc(graphics_context, screen.root, &CreateGCAux::default().foreground(screen.black_pixel).background(screen.black_pixel).line_width(2))?;
+        connection.create_gc(
+            graphics_context,
+            screen.root,
+            &CreateGCAux::default()
+                .foreground(screen.black_pixel)
+                .background(screen.black_pixel)
+                .line_width(2),
+        )?;
 
-        Ok(Self {connection, atoms, screen, graphics_context, visual, red_shift, green_shift, blue_shift })
+        Ok(Self {
+            connection,
+            atoms,
+            screen,
+            graphics_context,
+            visual,
+            red_shift,
+            green_shift,
+            blue_shift,
+        })
     }
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {
         unsafe {
-            xproto::change_property(&self.connection, PropMode::REPLACE, window, self.atoms._NET_WM_NAME, self.atoms.UTF8_STRING, 8, title.len() as u32, title.as_bytes());
+            xproto::change_property(
+                &self.connection,
+                PropMode::REPLACE,
+                window,
+                self.atoms._NET_WM_NAME,
+                self.atoms.UTF8_STRING,
+                8,
+                title.len() as u32,
+                title.as_bytes(),
+            );
         }
     }
 
-    fn add_window(&mut self, x: i16, y: i16, height: u16, width: u16, title: &str) -> Result<Self::Window, Self::Error> {
+    fn add_window(
+        &mut self,
+        x: i16,
+        y: i16,
+        height: u16,
+        width: u16,
+        title: &str,
+    ) -> Result<Self::Window, Self::Error> {
         unsafe {
             let window = self.connection.generate_id()?;
 
             let event_mask = EventMask::EXPOSURE;
-            let window_aux = CreateWindowAux::new().event_mask(event_mask).background_pixel(self.screen.white_pixel).backing_store(BackingStore::WHEN_MAPPED);
+            let window_aux = CreateWindowAux::new()
+                .event_mask(event_mask)
+                .background_pixel(self.screen.white_pixel)
+                .backing_store(BackingStore::WHEN_MAPPED);
 
             let root = self.screen.root;
             let root_visual = self.screen.root_visual;
 
-            create_window(&self.connection, 0, window, root, x, y, width, height, 1, WindowClass::COPY_FROM_PARENT, root_visual, &window_aux)?;
+            create_window(
+                &self.connection,
+                0,
+                window,
+                root,
+                x,
+                y,
+                width,
+                height,
+                1,
+                WindowClass::COPY_FROM_PARENT,
+                root_visual,
+                &window_aux,
+            )?;
 
             map_window(&self.connection, window).unwrap();
 
@@ -124,7 +183,17 @@ impl CoreStateImplementation for X11RbState {
             let protocol_len = protocols.len() as u32;
             let (_, protocols, _) = protocols.align_to::<u8>();
 
-            change_property(&self.connection, PropMode::REPLACE, window, self.atoms.WM_PROTOCOLS, self.atoms.ATOM, 32, protocol_len, protocols).unwrap();
+            change_property(
+                &self.connection,
+                PropMode::REPLACE,
+                window,
+                self.atoms.WM_PROTOCOLS,
+                self.atoms.ATOM,
+                32,
+                protocol_len,
+                protocols,
+            )
+            .unwrap();
 
             self.set_window_title(window, title);
 
@@ -138,14 +207,27 @@ impl CoreStateImplementation for X11RbState {
         let geometry = self.connection.get_geometry(window).unwrap();
         let geometry = geometry.reply().unwrap();
 
-        WindowPositionData { width: geometry.width, height: geometry.height, x: geometry.x, y: geometry.y }
+        WindowPositionData {
+            width: geometry.width,
+            height: geometry.height,
+            x: geometry.x,
+            y: geometry.y,
+        }
     }
 
-    fn draw_line(&mut self, window: Self::Window, x1: i16, y1: i16, x2: i16, y2: i16) -> Result<(), Self::Error> {
+    fn draw_line(
+        &mut self,
+        window: Self::Window,
+        x1: i16,
+        y1: i16,
+        x2: i16,
+        y2: i16,
+    ) -> Result<(), Self::Error> {
         let segment = Segment { x1, y1, x2, y2 };
 
-        self.connection.poly_segment(window, self.graphics_context, &[segment])?;
-        
+        self.connection
+            .poly_segment(window, self.graphics_context, &[segment])?;
+
         Ok(())
     }
 
@@ -154,45 +236,57 @@ impl CoreStateImplementation for X11RbState {
     }
 
     unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
-    
         let event = self.connection.wait_for_event();
 
-        let event = if let Ok(event) = event {event} else {
-            return None
+        let event = if let Ok(event) = event {
+            event
+        } else {
+            return None;
         };
 
         match event {
-            Event::Expose(expose) => { // XCB_EXPOSE
-                let region = RectRegion {x: expose.x, y: expose.y, width: expose.width, height: expose.height};
-                
+            Event::Expose(expose) => {
+                // XCB_EXPOSE
+                let region = RectRegion {
+                    x: expose.x,
+                    y: expose.y,
+                    width: expose.width,
+                    height: expose.height,
+                };
+
                 return Some(WWindCoreEvent::Expose(expose.window.into(), region));
-            },
-            Event::ClientMessage(event) => { // XCB_CLIENT_MESSAGE
+            }
+            Event::ClientMessage(event) => {
+                // XCB_CLIENT_MESSAGE
                 println!("client event");
                 if event.type_ == self.atoms.WM_PROTOCOLS {
                     let protocol = event.data.as_data32()[0];
-    
+
                     if protocol == 0 {
                         return None;
                     }
-    
-                    
+
                     if protocol == self.atoms.WM_DELETE_WINDOW {
-                        return Some(WWindCoreEvent::CloseWindow(event.window.into()))
-            
+                        return Some(WWindCoreEvent::CloseWindow(event.window.into()));
                     } else if protocol == self.atoms._NET_WM_PING {
                         let mut reply = event;
-                        
+
                         reply.window = self.screen.root;
-    
+
                         println!("pong");
-                        send_event(&self.connection, false, self.screen.root, EventMask::SUBSTRUCTURE_NOTIFY | EventMask::RESIZE_REDIRECT, reply).unwrap();
-    
+                        send_event(
+                            &self.connection,
+                            false,
+                            self.screen.root,
+                            EventMask::SUBSTRUCTURE_NOTIFY | EventMask::RESIZE_REDIRECT,
+                            reply,
+                        )
+                        .unwrap();
+
                         self.connection.flush().unwrap();
                     } else {
                         println!("unknown client event type {:?}", event.type_);
                     }
-    
                 }
             }
             event => {

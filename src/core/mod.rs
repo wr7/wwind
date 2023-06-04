@@ -1,25 +1,13 @@
-use crate::{
-    util::ForgetGuard, Color, DrawingContext, RectRegion, WWindState, Window, WindowPositionData,
-};
+use crate::{Color, RectRegion, WWindState, Window};
 
 mod core_state;
 
-use self::{
-    core_state::CoreStateData,
-    core_state_implementation::{CoreStateEnum, CoreWindowRef, WWindCoreEvent},
-};
+use self::{core_state::CoreStateData, core_state_implementation::CoreWindowRef};
 
 #[cfg(x11)]
 use self::x11rb::X11RbState;
 
-use super::WindowData;
-use std::{
-    cell::UnsafeCell,
-    collections::HashMap,
-    mem::MaybeUninit,
-    rc::Rc,
-    sync::atomic::{self, AtomicBool},
-};
+use std::{cell::UnsafeCell, rc::Rc};
 
 mod core_state_implementation;
 

@@ -4,17 +4,13 @@ use crate::core::CoreDrawingContext;
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
 use crate::core::{CoreState, CoreWindow};
-use std::{
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
 //  TODO:
 // -  remove RC in CoreWindowState
 //   * RC is leaked when CoreState is dropped
 // -  add support for color modes besides TrueColor
-// - Fix modal message loops on window
-//   * Why are these a thing? Can't poorly written programs just run poorly?
-//     Why do we need to force modal message loops on everyone in a poor attempt to fix this issue?
+
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -146,9 +142,6 @@ impl Window<'_> {
     ) {
         self.window.on_redraw(closure);
     }
-    pub fn position_data(&mut self) -> WindowPositionData {
-        self.window.get_position_data()
-    }
 
     pub fn get_drawing_context(&mut self) -> DrawingContext<'_> {
         DrawingContext::from_core_context(self.window.get_drawing_context())
@@ -188,7 +181,6 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn it_works() {}

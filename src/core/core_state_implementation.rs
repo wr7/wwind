@@ -1,10 +1,7 @@
 use crate::{Color, RectRegion, WindowPositionData};
-use std::{
-    convert::Infallible, hash::Hash,
-    sync::atomic,
-};
+use std::{convert::Infallible, hash::Hash, sync::atomic};
 
-use super::{CoreStateType, CORE_STATE_TYPE, STATE_CREATED};
+use super::core_state::{CoreStateType, CORE_STATE_TYPE, STATE_CREATED};
 
 #[cfg(x11)]
 use super::x11rb::{RbError, X11RbState};
@@ -32,9 +29,6 @@ pub trait CoreStateImplementation: Sized {
         title: &str,
     ) -> Result<Self::Window, Self::Error>;
     fn set_window_title(&mut self, window: Self::Window, title: &str);
-    fn get_position_data(&self, _window: Self::Window) -> WindowPositionData {
-        unimplemented!()
-    }
     fn flush(&mut self) -> Result<(), Self::Error>;
     /// ## Safety
     /// The same window should not be destroyed twice
@@ -314,17 +308,6 @@ impl CoreStateImplementation for CoreStateEnum {
             CoreStateEnum::X11(s) => s.wait_for_events(on_event),
             #[cfg(windows)]
             CoreStateEnum::Win32(s) => s.wait_for_events(on_event),
-        }
-    }
-
-    fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
-        unsafe {
-            match self {
-                #[cfg(x11)]
-                CoreStateEnum::X11(s) => s.get_position_data(window.x11()),
-                #[cfg(windows)]
-                CoreStateEnum::Win32(s) => s.get_position_data(window.win32()),
-            }
         }
     }
 

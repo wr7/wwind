@@ -1,17 +1,14 @@
 use std::convert::Infallible;
 
 use std::mem::MaybeUninit;
-use std::ptr::{addr_of};
+use std::ptr::addr_of;
 
 use std::{iter, mem, ptr};
 
-
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::wingdi::{
-    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectObject,
-    SetDCPenColor, DC_PEN,
+    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectObject, SetDCPenColor, DC_PEN,
 };
-
 
 use crate::RectRegion;
 
@@ -21,9 +18,9 @@ use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HDC, HPEN, HWND};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
-    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, GetDC,
-    GetMessageA, GetUpdateRect, RegisterClassA, SetWindowTextA,
-    ShowWindow, TranslateMessage, ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, GetDC, GetMessageA,
+    GetUpdateRect, RegisterClassA, SetWindowTextA, ShowWindow, TranslateMessage, ValidateRect,
+    CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
 };
 
 static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;

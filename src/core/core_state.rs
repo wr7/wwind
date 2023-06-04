@@ -60,18 +60,6 @@ impl CoreState {
         (wwind_state, window)
     }
 
-    fn get_graphical_calling_details(
-        &mut self,
-        window_ref: CoreWindowRef,
-    ) -> (ForgetGuard<'_, WWindState>, Window<'_>) {
-        let core_window = self.get_window_from_ref(window_ref);
-
-        let window = Window::from_core_window(core_window);
-        let wwind_state = WWindState::from_core_state(self);
-
-        (wwind_state, window)
-    }
-
     pub fn get_window_from_ref(&self, core_window_ref: CoreWindowRef) -> CoreWindow {
         let core_state_data = self.data.clone();
 

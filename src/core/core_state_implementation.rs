@@ -243,19 +243,17 @@ impl CoreStateImplementation for CoreStateEnum {
         width: u16,
         title: &str,
     ) -> Result<Self::Window, Self::Error> {
-        unsafe {
-            let window = match self {
-                #[cfg(x11)]
-                CoreStateEnum::X11(x11_state) => {
-                    x11_state.add_window(x, y, height, width, title)?.into()
-                }
-                #[cfg(windows)]
-                CoreStateEnum::Win32(win32_state) => {
-                    win32_state.add_window(x, y, height, width, title)?.into()
-                }
-            };
-            Ok(window)
-        }
+        let window = match self {
+            #[cfg(x11)]
+            CoreStateEnum::X11(x11_state) => {
+                x11_state.add_window(x, y, height, width, title)?.into()
+            }
+            #[cfg(windows)]
+            CoreStateEnum::Win32(win32_state) => {
+                win32_state.add_window(x, y, height, width, title)?.into()
+            }
+        };
+        Ok(window)
     }
 
     fn set_window_title(&mut self, window: Self::Window, title: &str) {

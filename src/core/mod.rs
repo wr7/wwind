@@ -111,6 +111,7 @@ impl CoreWindow {
     pub fn get_drawing_context(&mut self) -> CoreDrawingContext {
         let window_ref = self.core_window_ref;
         let core_state = &mut self.get_core_state_data_mut().core_state;
+
         unsafe {
             CoreDrawingContext {
                 context: core_state.get_context(window_ref),

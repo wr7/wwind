@@ -30,17 +30,6 @@ pub struct Win32State {
     pen: HPEN,
 }
 
-#[derive(Debug)]
-enum WindowsSendMessage {
-    CloseWindow(HWND),
-    Paint(HWND, RectRegion),
-}
-
-unsafe impl Sync for WindowsSendMessage {}
-unsafe impl Send for WindowsSendMessage {}
-
-static mut SEND_MESSAGE_QUEUE: Vec<WindowsSendMessage> = Vec::new();
-
 /// Neccesary because of "SendMessage" messages. Ugh
 unsafe extern "system" fn window_proc(
     window: HWND,

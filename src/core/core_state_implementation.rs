@@ -157,7 +157,7 @@ impl From<<Win32State as CoreStateImplementation>::DrawingContext> for DrawingCo
 #[cfg(x11)]
 impl From<<X11RbState as CoreStateImplementation>::DrawingContext> for DrawingContextEnum {
     fn from(value: <X11RbState as CoreStateImplementation>::DrawingContext) -> Self {
-        Self::Win32(value)
+        Self::X11(value)
     }
 }
 
@@ -234,7 +234,7 @@ impl CoreStateImplementation for CoreStateEnum {
             }
         };
 
-        // panic!("{err:?}");
+        Err(err.into())
     }
 
     fn add_window(
@@ -342,7 +342,7 @@ impl CoreStateImplementation for CoreStateEnum {
             #[cfg(windows)]
             CoreStateEnum::Win32(s) => s.get_context(window.win32()).into(),
             #[cfg(x11)]
-            CoreStateEnum::X11(s) => s.begin_paint(window.x11()).into(),
+            CoreStateEnum::X11(s) => s.get_context(window.x11()).into(),
         }
     }
 

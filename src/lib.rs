@@ -99,8 +99,8 @@ impl<'a> DrawingContext<'a> {
 }
 
 struct WindowData {
-    on_close: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, Window<'a>)>>,
-    redraw: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, Window<'a>, RectRegion)>>,
+    on_close: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>)>>,
+    redraw: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>, RectRegion)>>,
 }
 
 impl WindowData {
@@ -130,13 +130,13 @@ impl Window<'_> {
     pub fn schedule_window_destruction(&mut self) {
         unsafe { self.window.schedule_window_destruction() };
     }
-    pub fn on_window_close<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(
+    pub fn on_window_close<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window) + 'static>(
         &mut self,
         closure: F,
     ) {
         self.window.on_window_close_attempt(closure);
     }
-    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, Window<'a>, RectRegion) + 'static>(
+    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window, RectRegion) + 'static>(
         &mut self,
         closure: F,
     ) {
@@ -145,6 +145,10 @@ impl Window<'_> {
 
     pub fn get_drawing_context(&mut self) -> DrawingContext<'_> {
         DrawingContext::from_core_context(self.window.get_drawing_context())
+    }
+
+    pub fn get_size(&self) -> (u16, u16) {
+        self.window.get_size()
     }
 }
 

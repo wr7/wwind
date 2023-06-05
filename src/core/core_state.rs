@@ -51,7 +51,7 @@ impl CoreState {
     fn get_calling_details(
         &mut self,
         window_ref: CoreWindowRef,
-    ) -> (ForgetGuard<'_, WWindState>, Window<'_>) {
+    ) -> (ForgetGuard<'_, WWindState>, Window) {
         let core_window = self.get_window_from_ref(window_ref);
 
         let window = Window::from_core_window(core_window);
@@ -101,9 +101,10 @@ impl CoreState {
                             return;
                         };
 
-                        let (mut wwind_state, window) = core_state.get_calling_details(window_ref);
+                        let (mut wwind_state, mut window) =
+                            core_state.get_calling_details(window_ref);
 
-                        closure(&mut wwind_state, window);
+                        closure(&mut wwind_state, &mut window);
 
                         core_state
                             .get_data_mut()
@@ -125,9 +126,10 @@ impl CoreState {
                             return;
                         };
 
-                        let (mut wwind_state, window) = core_state.get_calling_details(window_ref);
+                        let (mut wwind_state, mut window) =
+                            core_state.get_calling_details(window_ref);
 
-                        closure(&mut wwind_state, window, region);
+                        closure(&mut wwind_state, &mut window, region);
 
                         core_state
                             .get_data_mut()

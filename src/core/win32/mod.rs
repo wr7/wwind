@@ -7,7 +7,7 @@ use std::{iter, mem, ptr};
 
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::wingdi::{
-    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectObject, SetDCPenColor, DC_PEN,
+    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectClipRgn, SelectObject, SetDCPenColor, DC_PEN,
 };
 
 use crate::RectRegion;
@@ -19,8 +19,8 @@ use winapi::shared::windef::{HDC, HPEN, HWND};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
     CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, GetDC, GetMessageA,
-    GetUpdateRect, RegisterClassA, SetWindowTextA, ShowWindow, TranslateMessage, ValidateRect,
-    CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+    GetUpdateRect, GetWindowRect, RegisterClassA, SetWindowTextA, ShowWindow, TranslateMessage,
+    ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
 };
 
 static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;
@@ -47,6 +47,8 @@ unsafe extern "system" fn window_proc(
         }
         WM_PAINT => {
             if let Some(on_event) = ON_EVENT {
+                SelectClipRgn(GetDC(window), ptr::null_mut());
+
                 let mut rect = MaybeUninit::uninit();
                 let res = GetUpdateRect(window, rect.as_mut_ptr(), 0);
                 let rect = rect.assume_init();
@@ -244,5 +246,19 @@ impl CoreStateImplementation for Win32State {
     ) -> Result<(), Self::Error> {
         unsafe { SetDCPenColor(context.context, color.into()) };
         Ok(())
+    }
+
+    fn get_size(&self, window: Self::Window) -> (u16, u16) {
+        let rect = unsafe {
+            let mut rect = MaybeUninit::uninit();
+            GetWindowRect(window, rect.as_mut_ptr());
+
+            rect.assume_init()
+        };
+
+        (
+            (rect.right - rect.left) as u16,
+            (rect.bottom - rect.top) as u16,
+        )
     }
 }

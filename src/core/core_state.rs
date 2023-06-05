@@ -17,6 +17,9 @@ use super::{
     CoreDrawingContext, CoreWindow, DrawingContextEnum,
 };
 
+#[cfg(x11)]
+use super::x11rb::X11RbState;
+
 #[derive(Clone)]
 pub struct CoreState {
     data: Rc<UnsafeCell<CoreStateData>>,
@@ -39,6 +42,7 @@ impl CoreState {
 
     #[cfg(x11)]
     unsafe fn get_x11(&mut self) -> &mut X11RbState {
+
         if let CoreStateEnum::X11(state) = &mut self.get_data_mut().core_state {
             state
         } else {
@@ -74,6 +78,10 @@ impl CoreState {
             context,
             core_state_data: self.data.clone(),
         }
+    }
+
+    pub fn flush(&mut self) {
+        self.get_data_mut().core_state.flush().unwrap()
     }
 
     pub unsafe fn wait_for_events(&mut self) {
@@ -136,6 +144,8 @@ impl CoreState {
                             .windows
                             .get_mut(&window_ref)
                             .map(|data| data.redraw.insert(closure));
+
+                        core_state.flush();
                     } else {
                         println!("Exposed non-existant window");
                     }

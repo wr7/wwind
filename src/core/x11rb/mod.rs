@@ -156,7 +156,7 @@ impl CoreStateImplementation for X11RbState {
             let event_mask = EventMask::EXPOSURE;
             let window_aux = CreateWindowAux::new()
                 .event_mask(event_mask)
-                .background_pixel(self.screen.white_pixel)
+                // .background_pixel(self.screen.white_pixel)
                 .backing_store(BackingStore::WHEN_MAPPED);
 
             let root = self.screen.root;
@@ -203,26 +203,19 @@ impl CoreStateImplementation for X11RbState {
         }
     }
 
-    fn get_position_data(&self, window: Self::Window) -> WindowPositionData {
-        let geometry = self.connection.get_geometry(window).unwrap();
-        let geometry = geometry.reply().unwrap();
-
-        WindowPositionData {
-            width: geometry.width,
-            height: geometry.height,
-            x: geometry.x,
-            y: geometry.y,
-        }
-    }
-
     fn draw_line(
         &mut self,
         window: Self::Window,
-        x1: i16,
-        y1: i16,
-        x2: i16,
-        y2: i16,
+        x1: u16,
+        y1: u16,
+        x2: u16,
+        y2: u16,
     ) -> Result<(), Self::Error> {
+        let x1 = x1 as _;
+        let x2 = x2 as _;
+        let y1 = y1 as _;
+        let y2 = y2 as _;
+        
         let segment = Segment { x1, y1, x2, y2 };
 
         self.connection
@@ -235,13 +228,13 @@ impl CoreStateImplementation for X11RbState {
         destroy_window(&self.connection, window).unwrap();
     }
 
-    unsafe fn wait_for_events(&mut self) -> Option<WWindCoreEvent> {
+    unsafe fn wait_for_events(&mut self, event_handler: &mut unsafe fn(WWindCoreEvent)) {
         let event = self.connection.wait_for_event();
 
         let event = if let Ok(event) = event {
             event
         } else {
-            return None;
+            return;
         };
 
         match event {
@@ -254,20 +247,21 @@ impl CoreStateImplementation for X11RbState {
                     height: expose.height,
                 };
 
-                return Some(WWindCoreEvent::Expose(expose.window.into(), region));
+                event_handler(WWindCoreEvent::Expose(expose.window.into(), region));
             }
             Event::ClientMessage(event) => {
                 // XCB_CLIENT_MESSAGE
-                println!("client event");
                 if event.type_ == self.atoms.WM_PROTOCOLS {
                     let protocol = event.data.as_data32()[0];
 
                     if protocol == 0 {
-                        return None;
+                        return;
                     }
 
                     if protocol == self.atoms.WM_DELETE_WINDOW {
-                        return Some(WWindCoreEvent::CloseWindow(event.window.into()));
+                        event_handler(WWindCoreEvent::CloseWindow(event.window.into()));
+
+                        return;
                     } else if protocol == self.atoms._NET_WM_PING {
                         let mut reply = event;
 
@@ -293,7 +287,6 @@ impl CoreStateImplementation for X11RbState {
                 println!("Unknown event: {event:?}");
             }
         }
-        None
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -301,12 +294,23 @@ impl CoreStateImplementation for X11RbState {
         Ok(())
     }
 
-    fn set_draw_color(&mut self, color: Color) -> Result<(), Self::Error> {
+    fn set_draw_color(&mut self, context: Self::DrawingContext, color: Color) -> Result<(), Self::Error> {
         let color = self.get_color(color);
 
         let values = ChangeGCAux::new().foreground(color).background(color);
         self.connection.change_gc(self.graphics_context, &values)?;
 
         Ok(())
+    }
+
+    fn get_size(&self, window: Self::Window) -> (u16, u16) {
+        let geometry = self.connection.get_geometry(window).unwrap();
+        let geometry = geometry.reply().unwrap();
+
+        (geometry.width, geometry.height)
+    }
+
+    unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext {
+        window
     }
 }

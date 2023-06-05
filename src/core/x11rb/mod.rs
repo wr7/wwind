@@ -11,7 +11,7 @@ use x11rb::{
             self, change_property, create_window, destroy_window, map_window, send_event,
             BackingStore, ChangeGCAux, ConnectionExt, CreateGCAux, CreateWindowAux, EventMask,
             GetWindowAttributesRequest, Point, PropMode, Screen, Segment, Visualtype, WindowClass,
-            CLIENT_MESSAGE_EVENT, EXPOSE_EVENT,
+            CLIENT_MESSAGE_EVENT, EXPOSE_EVENT, Rectangle,
         },
         Event,
     },
@@ -220,6 +220,18 @@ impl CoreStateImplementation for X11RbState {
 
         self.connection
             .poly_segment(window, self.graphics_context, &[segment])?;
+
+        Ok(())
+    }
+
+    fn draw_rectangle(
+            &mut self,
+            drawing_context: Self::DrawingContext,
+            rectangle: RectRegion,
+        ) -> Result<(), Self::Error> {
+        let rect = Rectangle { x: rectangle.x as i16, y: rectangle.y as i16, width: rectangle.width, height: rectangle.height };
+
+        self.connection.poly_fill_rectangle(drawing_context, self.graphics_context, &[rect])?;
 
         Ok(())
     }

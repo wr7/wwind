@@ -35,6 +35,8 @@ pub trait CoreStateImplementation: Sized {
     unsafe fn destroy_window(&mut self, window: Self::Window);
     unsafe fn wait_for_events(&mut self, on_event: &mut unsafe fn(WWindCoreEvent));
 
+    fn get_size(&self, window: Self::Window) -> (u16, u16);
+
     // Drawing
     unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext;
     fn draw_line(
@@ -341,6 +343,17 @@ impl CoreStateImplementation for CoreStateEnum {
             CoreStateEnum::Win32(s) => s.get_context(window.win32()).into(),
             #[cfg(x11)]
             CoreStateEnum::X11(s) => s.begin_paint(window.x11()).into(),
+        }
+    }
+
+    fn get_size(&self, window: Self::Window) -> (u16, u16) {
+        unsafe {
+            match self {
+                #[cfg(windows)]
+                CoreStateEnum::Win32(s) => s.get_size(window.win32()),
+                #[cfg(x11)]
+                CoreStateEnum::X11(s) => s.get_size(window.x11()),
+            }
         }
     }
 }

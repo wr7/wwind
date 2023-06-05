@@ -84,7 +84,9 @@ impl CoreWindow {
         unsafe { self.core_state_data.get().as_ref().unwrap() }
     }
 
-    pub fn on_window_close_attempt<F: for<'a> FnMut(&'a mut WWindState, Window<'a>) + 'static>(
+    pub fn on_window_close_attempt<
+        F: for<'a> FnMut(&'a mut WWindState, &'a mut Window) + 'static,
+    >(
         &mut self,
         closure: F,
     ) {
@@ -96,7 +98,7 @@ impl CoreWindow {
             .map(|data| data.on_close = Some(Box::new(closure)));
     }
 
-    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, Window<'a>, RectRegion) + 'static>(
+    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window, RectRegion) + 'static>(
         &mut self,
         closure: F,
     ) {
@@ -118,5 +120,11 @@ impl CoreWindow {
                 core_state_data: self.core_state_data.clone(),
             }
         }
+    }
+
+    pub fn get_size(&self) -> (u16, u16) {
+        self.get_core_state_data()
+            .core_state
+            .get_size(self.core_window_ref)
     }
 }

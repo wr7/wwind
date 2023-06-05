@@ -49,6 +49,12 @@ impl CoreDrawingContext {
             .draw_line(context, x1, y1, x2, y2)
             .unwrap()
     }
+
+    pub fn draw_rectangle(&mut self, rectangle: RectRegion) {
+        let context = self.context;
+
+        self.get_core_state_data_mut().core_state.draw_rectangle(context, rectangle).unwrap()
+    }
 }
 
 /// Represents a window.

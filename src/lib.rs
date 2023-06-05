@@ -85,6 +85,10 @@ impl<'a> DrawingContext<'a> {
         self.context.draw_line(x1, y1, x2, y2);
     }
 
+    pub fn draw_rectangle(&mut self, rectangle: RectRegion) {
+        self.context.draw_rectangle(rectangle);
+    }
+
     pub fn set_draw_color(&mut self, color: Color) {
         self.context.set_draw_color(color);
     }

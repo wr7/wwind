@@ -7,7 +7,8 @@ use std::{iter, mem, ptr};
 
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::wingdi::{
-    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectClipRgn, SelectObject, SetDCPenColor, DC_PEN,
+    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectClipRgn, SelectObject, SetDCBrushColor,
+    SetDCPenColor, DC_BRUSH, DC_PEN,
 };
 
 use crate::RectRegion;
@@ -15,7 +16,7 @@ use crate::RectRegion;
 use super::core_state_implementation::WWindCoreEvent;
 use super::CoreStateImplementation;
 use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
-use winapi::shared::windef::{HDC, HPEN, HWND};
+use winapi::shared::windef::{HBRUSH, HDC, HPEN, HWND, RECT};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
     CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, FillRect, GetDC, GetMessageA,
@@ -28,6 +29,7 @@ static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;
 pub struct Win32State {
     hinst: HMODULE,
     pen: HPEN,
+    brush: HBRUSH,
 }
 
 /// Neccesary because of "SendMessage" messages. Ugh
@@ -92,8 +94,9 @@ impl CoreStateImplementation for Win32State {
     unsafe fn new() -> Result<Self, Self::Error> {
         let hinst = GetModuleHandleA(ptr::null());
         let pen = GetStockObject(DC_PEN as i32) as *mut _;
+        let brush = GetStockObject(DC_BRUSH as i32) as *mut _;
 
-        Ok(Win32State { hinst, pen })
+        Ok(Win32State { hinst, pen, brush })
     }
 
     fn add_window(
@@ -120,8 +123,6 @@ impl CoreStateImplementation for Win32State {
                 WINDOW_CLASS_REGISTERED = true;
             }
         }
-
-        println!("b");
 
         // C String moment
         let title: Vec<i8> = title
@@ -150,11 +151,11 @@ impl CoreStateImplementation for Win32State {
             )
         };
 
-        println!("{}", unsafe { GetLastError() });
-
         unsafe {
             let dc = GetDC(window);
+
             SelectObject(dc, self.pen as *mut _);
+            SelectObject(dc, self.brush as *mut _);
         }
 
         println!("c");
@@ -238,7 +239,23 @@ impl CoreStateImplementation for Win32State {
         drawing_context: Self::DrawingContext,
         rectangle: RectRegion,
     ) -> Result<(), Self::Error> {
-        todo!()
+        let left = rectangle.x as i32;
+        let bottom = rectangle.y as i32;
+        let right = (rectangle.x + rectangle.width) as i32;
+        let top = (rectangle.y + rectangle.height) as i32;
+
+        let rect = RECT {
+            left,
+            top,
+            right,
+            bottom,
+        };
+
+        unsafe {
+            FillRect(drawing_context.context, addr_of!(rect), self.brush);
+        }
+
+        Ok(())
     }
 
     unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext {
@@ -252,7 +269,10 @@ impl CoreStateImplementation for Win32State {
         context: Self::DrawingContext,
         color: crate::Color,
     ) -> Result<(), Self::Error> {
-        unsafe { SetDCPenColor(context.context, color.into()) };
+        unsafe {
+            SetDCPenColor(context.context, color.into());
+            SetDCBrushColor(context.context, color.into());
+        }
         Ok(())
     }
 

@@ -18,7 +18,7 @@ use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HDC, HPEN, HWND};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
-    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, GetDC, GetMessageA,
+    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, FillRect, GetDC, GetMessageA,
     GetUpdateRect, GetWindowRect, RegisterClassA, SetWindowTextA, ShowWindow, TranslateMessage,
     ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
 };
@@ -231,6 +231,14 @@ impl CoreStateImplementation for Win32State {
         }
 
         Ok(())
+    }
+
+    fn draw_rectangle(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        rectangle: RectRegion,
+    ) -> Result<(), Self::Error> {
+        todo!()
     }
 
     unsafe fn get_context(&mut self, window: Self::Window) -> Self::DrawingContext {

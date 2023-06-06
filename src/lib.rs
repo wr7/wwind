@@ -11,6 +11,7 @@ use std::marker::PhantomData;
 //   * RC is leaked when CoreState is dropped
 // -  add support for color modes besides TrueColor
 
+#[derive(Clone, Copy)]
 pub struct Color {
     pub red: u8,
     pub green: u8,

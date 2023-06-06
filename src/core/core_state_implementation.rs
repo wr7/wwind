@@ -228,20 +228,22 @@ impl CoreStateImplementation for CoreStateEnum {
         }
 
         #[cfg(x11)]
-        let err = {
-            match X11RbState::new() {
-                Ok(state) => {
-                    CORE_STATE_TYPE.write(CoreStateType::X11);
+        {
+            let err = {
+                match X11RbState::new() {
+                    Ok(state) => {
+                        CORE_STATE_TYPE.write(CoreStateType::X11);
 
-                    let state = CoreStateEnum::X11(state);
+                        let state = CoreStateEnum::X11(state);
 
-                    return Ok(state);
+                        return Ok(state);
+                    }
+                    Err(err) => err,
                 }
-                Err(err) => err,
-            }
-        };
+            };
 
-        Err(err.into())
+            Err(err.into())
+        }
     }
 
     fn add_window(
@@ -310,7 +312,9 @@ impl CoreStateImplementation for CoreStateEnum {
                 #[cfg(x11)]
                 CoreStateEnum::X11(s) => Ok(s.draw_rectangle(drawing_context.x11(), rectangle)?),
                 #[cfg(windows)]
-                CoreStateEnum::Win32(s) => Ok(s.draw_rectangle(drawing_context.win32(), rectangle)?),
+                CoreStateEnum::Win32(s) => {
+                    Ok(s.draw_rectangle(drawing_context.win32(), rectangle)?)
+                }
             }
         }
     }

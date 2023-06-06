@@ -19,9 +19,10 @@ use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HBRUSH, HDC, HPEN, HWND, RECT};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
-    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, FillRect, GetDC, GetMessageA,
-    GetUpdateRect, GetWindowRect, RegisterClassA, SetWindowTextA, ShowWindow, TranslateMessage,
-    ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA, WS_OVERLAPPEDWINDOW,
+    CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, FillRect, GetClientRect,
+    GetDC, GetMessageA, GetUpdateRect, GetWindowRect, RegisterClassA, SetWindowTextA, ShowWindow,
+    TranslateMessage, ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA,
+    WS_OVERLAPPEDWINDOW,
 };
 
 static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;
@@ -279,7 +280,7 @@ impl CoreStateImplementation for Win32State {
     fn get_size(&self, window: Self::Window) -> (u16, u16) {
         let rect = unsafe {
             let mut rect = MaybeUninit::uninit();
-            GetWindowRect(window, rect.as_mut_ptr());
+            GetClientRect(window, rect.as_mut_ptr());
 
             rect.assume_init()
         };

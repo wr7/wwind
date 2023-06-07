@@ -90,6 +90,10 @@ impl<'a> DrawingContext<'a> {
         self.context.draw_rectangle(rectangle);
     }
 
+    pub fn draw_text(&mut self, x: u16, y: u16, text: &str) {
+        self.context.draw_text(x, y, text)
+    }
+
     pub fn set_draw_color(&mut self, color: Color) {
         self.context.set_draw_color(color);
     }

@@ -7,8 +7,8 @@ use std::{iter, mem, ptr};
 
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::wingdi::{
-    GdiFlush, GetStockObject, LineTo, MoveToEx, SelectClipRgn, SelectObject, SetDCBrushColor,
-    SetDCPenColor, DC_BRUSH, DC_PEN,
+    ExtTextOutA, GdiFlush, GetStockObject, LineTo, MoveToEx, SelectClipRgn, SelectObject,
+    SetDCBrushColor, SetDCPenColor, DC_BRUSH, DC_PEN,
 };
 
 use crate::RectRegion;
@@ -282,6 +282,29 @@ impl CoreStateImplementation for Win32State {
         unsafe {
             FillRect(drawing_context.context, addr_of!(rect), self.brush);
         }
+
+        Ok(())
+    }
+
+    fn draw_text(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        x: u16,
+        y: u16,
+        text: &str,
+    ) -> Result<(), Self::Error> {
+        unsafe {
+            ExtTextOutA(
+                drawing_context.context,
+                x as i32,
+                y as i32,
+                0,
+                ptr::null(),
+                text.as_ptr() as *const i8,
+                text.len() as u32,
+                ptr::null(),
+            )
+        };
 
         Ok(())
     }

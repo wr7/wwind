@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    core::{CoreDrawingContext, CoreStateImplementation, CoreWindowRef},
+    core::{CoreStateImplementation, CoreWindowRef},
     state::CoreStateData,
     util::PhantomUnsend,
     DrawingContext, RectRegion, WWindState,
@@ -75,10 +75,8 @@ impl Window<'_> {
 
         let context = unsafe { self.get_core_data_mut().core_state.get_context(window_ref) };
         DrawingContext {
-            context: CoreDrawingContext {
-                context,
-                core_state_data: self.data,
-            },
+            context,
+            data: self.data,
             _unsend: Default::default(),
             _phantom_data: PhantomData,
         }

@@ -1,5 +1,3 @@
-use crate::core::CoreDrawingContext;
-
 #[allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
@@ -44,10 +42,12 @@ impl Color {
 use util::PhantomUnsend;
 
 mod core;
+mod drawing_context;
 mod state;
 mod util;
 mod window;
 
+pub use drawing_context::DrawingContext;
 pub use state::WWindState;
 pub use window::Window;
 
@@ -75,34 +75,6 @@ impl RectRegion {
     }
     pub fn get_right_x(&self) -> u16 {
         self.x + self.width
-    }
-}
-
-pub struct DrawingContext<'a> {
-    context: CoreDrawingContext,
-    _unsend: PhantomUnsend,
-    _phantom_data: PhantomData<&'a ()>,
-}
-
-impl<'a> DrawingContext<'a> {
-    pub fn draw_line(&mut self, x1: u16, y1: u16, x2: u16, y2: u16) {
-        self.context.draw_line(x1, y1, x2, y2);
-    }
-
-    pub fn draw_rectangle(&mut self, rectangle: RectRegion) {
-        self.context.draw_rectangle(rectangle);
-    }
-
-    pub fn set_draw_color(&mut self, color: Color) {
-        self.context.set_draw_color(color);
-    }
-
-    pub(crate) fn from_core_context(context: CoreDrawingContext) -> Self {
-        Self {
-            context,
-            _unsend: Default::default(),
-            _phantom_data: Default::default(),
-        }
     }
 }
 

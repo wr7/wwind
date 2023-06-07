@@ -10,16 +10,16 @@ fn main() {
     let instance = WWindInstance::new(|state: &mut WWindState| {
         let mut window = state.add_window(100, 100, 500, 500, "test title");
 
-        window.on_redraw(|_state, window, _region| {
+        window.on_redraw(|_, window, _| {
             let (w, h) = window.get_size();
-            let rect = RectRegion { x: 0, y: 0, width: w, height: h };
+            let window_rect = RectRegion { x: 0, y: 0, width: w, height: h };
 
             let mut context = window.get_drawing_context();
 
             // Draw background //
 
             context.set_draw_color(Color::from_hex(0xffffff));
-            context.draw_rectangle(rect);
+            context.draw_rectangle(window_rect);
             
             // Draw lines //
 
@@ -27,7 +27,6 @@ fn main() {
             context.draw_line(0, 0, w, h);
             
             context.set_draw_color(Color::from_rgb(255,0,0));
-
             context.draw_line(w, 0, 0, h);
         });
     });

@@ -7,11 +7,12 @@ use std::{
 
 use crate::{
     core::{
-        CoreDrawingContext, CoreStateEnum, CoreStateImplementation, CoreWindow, CoreWindowRef,
+        CoreDrawingContext, CoreStateEnum, CoreStateImplementation, CoreWindowRef,
         DrawingContextEnum, WWindCoreEvent,
     },
     util::PhantomUnsend,
-    Window, WindowData, SHOULD_EXIT,
+    window::WindowData,
+    Window, SHOULD_EXIT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,7 +28,7 @@ pub(super) static mut CORE_STATE_TYPE: MaybeUninit<CoreStateType> = MaybeUninit:
 
 #[repr(C)]
 pub struct WWindState {
-    state: *mut CoreStateData,
+    data: *mut CoreStateData,
     _unsend: PhantomUnsend,
 }
 
@@ -40,7 +41,7 @@ pub struct CoreStateData {
 impl WWindState {
     pub(crate) unsafe fn clone(&self) -> Self {
         Self {
-            state: self.state,
+            data: self.data,
             _unsend: Default::default(),
         }
     }
@@ -60,7 +61,7 @@ impl WWindState {
             let state = Box::new(data);
 
             Some(Self {
-                state: Box::into_raw(state),
+                data: Box::into_raw(state),
                 _unsend: PhantomUnsend::default(),
             })
         } else {
@@ -69,11 +70,11 @@ impl WWindState {
     }
 
     pub(crate) fn get_core_data_mut(&mut self) -> &mut CoreStateData {
-        unsafe { &mut *self.state }
+        unsafe { &mut *self.data }
     }
 
     pub(crate) fn get_core_data(&self) -> &CoreStateData {
-        unsafe { &*self.state }
+        unsafe { &*self.data }
     }
 
     /// Destroys the windows that were scheduled for deletion
@@ -96,10 +97,8 @@ impl WWindState {
 
     pub(crate) fn get_window_from_ref(&mut self, window_ref: CoreWindowRef) -> Window {
         Window {
-            window: CoreWindow {
-                core_window_ref: window_ref,
-                core_state_data: self.state,
-            },
+            window_ref,
+            data: self.data,
             _unsend: Default::default(),
             _phantom_data: PhantomData,
         }
@@ -107,6 +106,7 @@ impl WWindState {
 
     pub(crate) unsafe fn destroy(self) {
         CORE_STATE_TYPE.assume_init_drop();
+        drop(Box::from_raw(self.data));
 
         STATE_CREATED.store(false, atomic::Ordering::Release);
     }
@@ -114,7 +114,7 @@ impl WWindState {
     pub(crate) fn get_core_context(&self, context: DrawingContextEnum) -> CoreDrawingContext {
         CoreDrawingContext {
             context,
-            core_state_data: self.state,
+            core_state_data: self.data,
         }
     }
 

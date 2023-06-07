@@ -37,7 +37,7 @@ fn main() {
 ![Resulting window](docs/example.png)
 ## Code Layout
 - Each platform has a "CoreState" that implements the `CoreStateImplementation` trait (`src/core/core_state_implementation.rs`). All enabled and supported states are enumerated by `CoreStateEnum` which also implements the `CoreStateImplementation` trait. 
-- `CoreState` (planned to be removed), `CoreWindow`, and `CoreDrawingContext` provide unsafe abstractions over what they represent. 
+- `CoreDrawingContext` (planned to be removed) provides an unsafe abstraction over drawable things. 
 - `WWindState`, `DrawingContext`, and `Window` provide the public abstractions for this library.
 - Finally, `WWindInstance` represents an application/event loop.
 

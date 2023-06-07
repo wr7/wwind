@@ -5,7 +5,7 @@ use crate::{
 use std::{convert::Infallible, hash::Hash, sync::atomic};
 
 #[cfg(x11)]
-use super::x11rb::{RbError, X11RbState};
+use super::x11rb::X11RbState;
 
 #[cfg(windows)]
 use super::win32::Win32State;

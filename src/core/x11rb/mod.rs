@@ -1,6 +1,6 @@
-use crate::{Color, RectRegion, WindowPositionData};
+use crate::{Color, RectRegion};
 
-use super::{core_state_implementation::WWindCoreEvent, CoreStateImplementation, CoreWindowRef};
+use super::{core_state_implementation::WWindCoreEvent, CoreStateImplementation};
 use x11rb::{
     atom_manager,
     connection::Connection,
@@ -8,12 +8,11 @@ use x11rb::{
         xproto::{
             self, change_property, create_window, destroy_window, map_window, send_event,
             BackingStore, ChangeGCAux, ConnectionExt, CreateGCAux, CreateWindowAux, EventMask,
-            GetWindowAttributesRequest, Point, PropMode, Rectangle, Screen, Segment, Visualtype,
-            WindowClass, CLIENT_MESSAGE_EVENT, EXPOSE_EVENT,
+            PropMode, Rectangle, Screen, Segment, Visualtype, WindowClass,
         },
         Event,
     },
-    rust_connection::{ConnectError, ConnectionError, ParseError, ReplyError, RustConnection},
+    rust_connection::RustConnection,
 };
 
 mod error;
@@ -34,7 +33,7 @@ fn get_first_bit_pos(mut num: u32) -> u8 {
     let mut pos = 0;
     while num & 1 == 0 {
         pos += 1;
-        num = num >> 1;
+        num >>= 1;
     }
     pos
 }
@@ -276,8 +275,6 @@ impl CoreStateImplementation for X11RbState {
 
                     if protocol == self.atoms.WM_DELETE_WINDOW {
                         event_handler(WWindCoreEvent::CloseWindow(event.window.into()));
-
-                        return;
                     } else if protocol == self.atoms._NET_WM_PING {
                         let mut reply = event;
 
@@ -312,7 +309,7 @@ impl CoreStateImplementation for X11RbState {
 
     fn set_draw_color(
         &mut self,
-        context: Self::DrawingContext,
+        _context: Self::DrawingContext,
         color: Color,
     ) -> Result<(), Self::Error> {
         let color = self.get_color(color);

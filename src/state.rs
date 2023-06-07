@@ -40,7 +40,7 @@ pub struct CoreStateData {
 impl WWindState {
     pub(crate) unsafe fn clone(&self) -> Self {
         Self {
-            state: self.state.clone(),
+            state: self.state,
             _unsend: Default::default(),
         }
     }

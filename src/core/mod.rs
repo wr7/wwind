@@ -1,7 +1,5 @@
 use crate::{state::CoreStateData, Color, RectRegion, WWindState, Window};
 
-use std::{cell::UnsafeCell, rc::Rc};
-
 mod core_state_implementation;
 
 pub(crate) use self::core_state_implementation::CoreWindowRef;
@@ -121,7 +119,7 @@ impl CoreWindow {
         unsafe {
             CoreDrawingContext {
                 context: core_state.get_context(window_ref),
-                core_state_data: self.core_state_data.clone(),
+                core_state_data: self.core_state_data,
             }
         }
     }

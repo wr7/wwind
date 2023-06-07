@@ -43,7 +43,7 @@ impl Color {
     }
 }
 
-use util::{ForgetGuard, PhantomUnsend};
+use util::PhantomUnsend;
 
 mod core;
 mod state;

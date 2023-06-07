@@ -34,6 +34,7 @@ fn main() {
     instance.unwrap().run();
 }
 ```
+![Resulting window](docs/example.png)
 ## Code Layout
 - Each platform has a "CoreState" that implements the `CoreStateImplementation` trait (`src/core/core_state_implementation.rs`). All enabled and supported states are enumerated by `CoreStateEnum` which also implements the `CoreStateImplementation` trait. 
 - `CoreState` (planned to be removed), `CoreWindow`, and `CoreDrawingContext` provide unsafe abstractions over what they represent. 

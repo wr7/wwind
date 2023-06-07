@@ -7,8 +7,7 @@ use std::{
 
 use crate::{
     core::{
-        CoreDrawingContext, CoreStateEnum, CoreStateImplementation, CoreWindowRef,
-        DrawingContextEnum, WWindCoreEvent,
+        CoreStateEnum, CoreStateImplementation, CoreWindowRef, DrawingContextEnum, WWindCoreEvent,
     },
     util::PhantomUnsend,
     window::WindowData,
@@ -109,13 +108,6 @@ impl WWindState {
         drop(Box::from_raw(self.data));
 
         STATE_CREATED.store(false, atomic::Ordering::Release);
-    }
-
-    pub(crate) fn get_core_context(&self, context: DrawingContextEnum) -> CoreDrawingContext {
-        CoreDrawingContext {
-            context,
-            core_state_data: self.data,
-        }
     }
 
     pub(crate) fn flush(&mut self) {

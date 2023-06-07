@@ -3,12 +3,10 @@ use crate::core::CoreDrawingContext;
 #[allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
-use crate::core::CoreWindow;
 use std::marker::PhantomData;
 
 //  TODO:
-// -  remove RC in CoreWindowState
-//   * RC is leaked when CoreState is dropped
+// -  fix Win32Data leak
 // -  add support for color modes besides TrueColor
 
 #[derive(Clone, Copy, Debug)]
@@ -48,8 +46,10 @@ use util::PhantomUnsend;
 mod core;
 mod state;
 mod util;
+mod window;
 
 pub use state::WWindState;
+pub use window::Window;
 
 static mut SHOULD_EXIT: bool = false;
 
@@ -106,60 +106,6 @@ impl<'a> DrawingContext<'a> {
     }
 }
 
-struct WindowData {
-    on_close: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>)>>,
-    redraw: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>, RectRegion)>>,
-}
-
-impl WindowData {
-    pub fn new(_width: u16, _height: u16) -> Self {
-        Self {
-            on_close: None,
-            redraw: None,
-        }
-    }
-}
-
-pub struct Window<'a> {
-    window: core::CoreWindow,
-    _unsend: PhantomUnsend,
-    _phantom_data: PhantomData<&'a ()>,
-}
-
-impl Window<'_> {
-    pub(crate) fn from_core_window(window: CoreWindow) -> Self {
-        Self {
-            window,
-            _unsend: Default::default(),
-            _phantom_data: PhantomData,
-        }
-    }
-
-    pub fn schedule_window_destruction(&mut self) {
-        unsafe { self.window.schedule_window_destruction() };
-    }
-    pub fn on_window_close<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window) + 'static>(
-        &mut self,
-        closure: F,
-    ) {
-        self.window.on_window_close_attempt(closure);
-    }
-    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window, RectRegion) + 'static>(
-        &mut self,
-        closure: F,
-    ) {
-        self.window.on_redraw(closure);
-    }
-
-    pub fn get_drawing_context(&mut self) -> DrawingContext<'_> {
-        DrawingContext::from_core_context(self.window.get_drawing_context())
-    }
-
-    pub fn get_size(&self) -> (u16, u16) {
-        self.window.get_size()
-    }
-}
-
 pub struct WWindInstance<OnInit: FnOnce(&mut WWindState)> {
     state: WWindState,
     on_init: OnInit,
@@ -186,6 +132,8 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
                 self.state.wait_for_events();
                 self.state.destroy_pending_windows();
             }
+
+            self.state.destroy();
         }
     }
 }

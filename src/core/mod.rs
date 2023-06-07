@@ -1,17 +1,11 @@
-use crate::{Color, RectRegion, WWindState, Window};
-
-mod core_state;
-
-use self::{core_state::CoreStateData, core_state_implementation::CoreWindowRef};
-
-#[cfg(x11)]
-use self::x11rb::X11RbState;
+use crate::{state::CoreStateData, Color, RectRegion, WWindState, Window};
 
 use std::{cell::UnsafeCell, rc::Rc};
 
 mod core_state_implementation;
 
-pub use core_state::CoreStateType;
+pub(crate) use self::core_state_implementation::CoreWindowRef;
+pub(crate) use core_state_implementation::CoreStateEnum;
 pub use core_state_implementation::CoreStateImplementation;
 
 #[cfg(windows)]
@@ -19,18 +13,18 @@ mod win32;
 #[cfg(x11)]
 mod x11rb;
 
-pub use core_state::CoreState;
 pub use core_state_implementation::DrawingContextEnum;
+pub use core_state_implementation::WWindCoreEvent;
 
 #[derive(Clone)]
 pub struct CoreDrawingContext {
-    context: DrawingContextEnum,
-    core_state_data: Rc<UnsafeCell<CoreStateData>>,
+    pub context: DrawingContextEnum,
+    pub core_state_data: *mut CoreStateData,
 }
 
 impl CoreDrawingContext {
     fn get_core_state_data_mut(&mut self) -> &mut CoreStateData {
-        unsafe { &mut (*self.core_state_data.get()) }
+        unsafe { &mut *self.core_state_data }
     }
 
     pub fn set_draw_color(&mut self, color: Color) {
@@ -38,7 +32,8 @@ impl CoreDrawingContext {
 
         self.get_core_state_data_mut()
             .core_state
-            .set_draw_color(context, color).unwrap();
+            .set_draw_color(context, color)
+            .unwrap();
     }
 
     pub fn draw_line(&mut self, x1: u16, y1: u16, x2: u16, y2: u16) {
@@ -53,7 +48,10 @@ impl CoreDrawingContext {
     pub fn draw_rectangle(&mut self, rectangle: RectRegion) {
         let context = self.context;
 
-        self.get_core_state_data_mut().core_state.draw_rectangle(context, rectangle).unwrap()
+        self.get_core_state_data_mut()
+            .core_state
+            .draw_rectangle(context, rectangle)
+            .unwrap()
     }
 }
 
@@ -61,8 +59,8 @@ impl CoreDrawingContext {
 /// Note: this doesn't destroy the window upon drop
 #[derive(Clone)]
 pub struct CoreWindow {
-    core_window_ref: CoreWindowRef,
-    core_state_data: Rc<UnsafeCell<CoreStateData>>,
+    pub core_window_ref: CoreWindowRef,
+    pub core_state_data: *mut CoreStateData,
 }
 
 impl PartialEq for CoreWindow {
@@ -83,11 +81,11 @@ impl CoreWindow {
     }
 
     pub fn get_core_state_data_mut(&mut self) -> &mut CoreStateData {
-        unsafe { self.core_state_data.get().as_mut().unwrap() }
+        unsafe { &mut *self.core_state_data }
     }
 
     pub fn get_core_state_data(&self) -> &CoreStateData {
-        unsafe { self.core_state_data.get().as_ref().unwrap() }
+        unsafe { &*self.core_state_data }
     }
 
     pub fn on_window_close_attempt<

@@ -1,14 +1,11 @@
 use std::{
     collections::HashMap,
-    marker::PhantomData,
     mem::MaybeUninit,
     sync::atomic::{self, AtomicBool},
 };
 
 use crate::{
-    core::{
-        CoreStateEnum, CoreStateImplementation, CoreWindowRef, DrawingContextEnum, WWindCoreEvent,
-    },
+    core::{CoreStateEnum, CoreStateImplementation, CoreWindowRef, WWindCoreEvent},
     util::PhantomUnsend,
     window::WindowData,
     Window, SHOULD_EXIT,
@@ -32,9 +29,40 @@ pub struct WWindState {
 }
 
 pub struct CoreStateData {
-    pub(super) core_state: CoreStateEnum,
-    pub(super) windows: HashMap<CoreWindowRef, WindowData>,
-    pub(super) windows_to_destroy: Vec<CoreWindowRef>,
+    pub(crate) core_state: CoreStateEnum,
+    pub(crate) windows: HashMap<CoreWindowRef, WindowData>,
+    pub(crate) windows_to_destroy: Vec<CoreWindowRef>,
+}
+
+impl WWindState {
+    pub fn schedule_exit(&mut self) {
+        unsafe { SHOULD_EXIT = true };
+    }
+
+    pub fn add_window<'a>(
+        &'a mut self,
+        x: i16,
+        y: i16,
+        height: u16,
+        width: u16,
+        title: &str,
+    ) -> Window<'a> {
+        let window_ref = self
+            .get_core_data_mut()
+            .core_state
+            .add_window(x, y, height, width, title)
+            .unwrap();
+
+        self.get_core_data_mut()
+            .windows
+            .insert(window_ref, WindowData::new(width, height));
+
+        self.get_window_from_ref(window_ref)
+    }
+
+    pub fn do_windows_exist(&self) -> bool {
+        !self.get_core_data().windows.is_empty()
+    }
 }
 
 impl WWindState {
@@ -95,12 +123,7 @@ impl WWindState {
     }
 
     pub(crate) fn get_window_from_ref(&mut self, window_ref: CoreWindowRef) -> Window {
-        Window {
-            window_ref,
-            data: self.data,
-            _unsend: Default::default(),
-            _phantom_data: PhantomData,
-        }
+        Window::from_parts(window_ref, self.data)
     }
 
     pub(crate) unsafe fn destroy(self) {
@@ -182,37 +205,5 @@ impl WWindState {
                 }
             }
         }
-    }
-}
-
-impl WWindState {
-    pub fn schedule_exit(&mut self) {
-        unsafe { SHOULD_EXIT = true };
-    }
-
-    pub fn add_window<'a>(
-        &'a mut self,
-        x: i16,
-        y: i16,
-        height: u16,
-        width: u16,
-        title: &str,
-    ) -> Window<'a> {
-        let window_ref = unsafe {
-            self.get_core_data_mut()
-                .core_state
-                .add_window(x, y, height, width, title)
-                .unwrap()
-        };
-
-        self.get_core_data_mut()
-            .windows
-            .insert(window_ref, WindowData::new(width, height));
-
-        self.get_window_from_ref(window_ref)
-    }
-
-    pub fn do_windows_exist(&self) -> bool {
-        !unsafe { self.get_core_data() }.windows.is_empty()
     }
 }

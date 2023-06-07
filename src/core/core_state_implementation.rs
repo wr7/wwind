@@ -209,6 +209,8 @@ impl From<<X11RbState as CoreStateImplementation>::Error> for CoreError {
     }
 }
 
+// Boilerplate that I intend to eventually automate with a macro
+
 impl CoreStateImplementation for CoreStateEnum {
     type Error = CoreError;
 

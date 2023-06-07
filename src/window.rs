@@ -22,19 +22,10 @@ impl WindowData {
 }
 
 pub struct Window<'a> {
-    pub(crate) window_ref: CoreWindowRef,
-    pub(crate) data: *mut CoreStateData,
-    pub(crate) _unsend: PhantomUnsend,
-    pub(crate) _phantom_data: PhantomData<&'a ()>,
-}
-
-impl Window<'_> {
-    pub(crate) fn get_core_data_mut(&mut self) -> &mut CoreStateData {
-        unsafe { &mut *self.data }
-    }
-    pub(crate) fn get_core_data(&self) -> &CoreStateData {
-        unsafe { &*self.data }
-    }
+    window_ref: CoreWindowRef,
+    data: *mut CoreStateData,
+    _unsend: PhantomUnsend,
+    _phantom_data: PhantomData<&'a ()>,
 }
 
 impl Window<'_> {
@@ -43,11 +34,11 @@ impl Window<'_> {
         let windows_to_destroy = &mut self.get_core_data_mut().windows_to_destroy;
 
         if !windows_to_destroy.contains(&window_to_schedule) {
-            unsafe { windows_to_destroy.push(window_to_schedule) };
+            windows_to_destroy.push(window_to_schedule);
         }
     }
 
-    pub fn on_window_close<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window) + 'static>(
+    pub fn on_window_close<F: FnMut(&mut WWindState, &mut Window) + 'static>(
         &mut self,
         closure: F,
     ) {
@@ -58,7 +49,7 @@ impl Window<'_> {
             .get_mut(&window_ref)
             .map(|data| data.on_close = Some(Box::new(closure)));
     }
-    pub fn on_redraw<F: for<'a> FnMut(&'a mut WWindState, &'a mut Window, RectRegion) + 'static>(
+    pub fn on_redraw<F: FnMut(&mut WWindState, &mut Window, RectRegion) + 'static>(
         &mut self,
         closure: F,
     ) {
@@ -74,17 +65,30 @@ impl Window<'_> {
         let window_ref = self.window_ref;
 
         let context = unsafe { self.get_core_data_mut().core_state.get_context(window_ref) };
-        DrawingContext {
-            context,
-            data: self.data,
-            _unsend: Default::default(),
-            _phantom_data: PhantomData,
-        }
+
+        DrawingContext::from_parts(context, self.data)
     }
 
     pub fn get_size(&self) -> (u16, u16) {
         let window_ref = self.window_ref;
 
         self.get_core_data().core_state.get_size(window_ref)
+    }
+}
+
+impl Window<'_> {
+    pub(crate) fn from_parts(window_ref: CoreWindowRef, data: *mut CoreStateData) -> Self {
+        Self {
+            window_ref,
+            data,
+            _unsend: Default::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+    pub(crate) fn get_core_data_mut(&mut self) -> &mut CoreStateData {
+        unsafe { &mut *self.data }
+    }
+    pub(crate) fn get_core_data(&self) -> &CoreStateData {
+        unsafe { &*self.data }
     }
 }

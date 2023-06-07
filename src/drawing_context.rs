@@ -8,10 +8,10 @@ use crate::{
 };
 
 pub struct DrawingContext<'a> {
-    pub(crate) context: DrawingContextEnum,
-    pub(crate) data: *mut CoreStateData,
-    pub(crate) _unsend: PhantomUnsend,
-    pub(crate) _phantom_data: PhantomData<&'a ()>,
+    context: DrawingContextEnum,
+    data: *mut CoreStateData,
+    _unsend: PhantomUnsend,
+    _phantom_data: PhantomData<&'a ()>,
 }
 
 impl<'a> DrawingContext<'a> {
@@ -44,6 +44,15 @@ impl<'a> DrawingContext<'a> {
 }
 
 impl<'a> DrawingContext<'a> {
+    pub(crate) fn from_parts(context: DrawingContextEnum, data: *mut CoreStateData) -> Self {
+        Self {
+            context,
+            data,
+            _unsend: Default::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+
     fn get_data_mut(&mut self) -> &mut CoreStateData {
         unsafe { &mut *self.data }
     }

@@ -1,5 +1,3 @@
-use crate::{state::CoreStateData, Color, RectRegion, WWindState};
-
 mod core_state_implementation;
 
 pub(crate) use self::core_state_implementation::CoreWindowRef;

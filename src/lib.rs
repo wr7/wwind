@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 //   * RC is leaked when CoreState is dropped
 // -  add support for color modes besides TrueColor
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -33,9 +33,9 @@ impl From<u32> for Color {
 impl Color {
     pub const fn from_hex(hex: u32) -> Self {
         Self {
-            blue: (hex & 0xFF) as u8,
-            green: ((hex & 0xFF00) >> 8) as u8,
-            red: (hex & 0xFF0000 >> 16) as u8,
+            blue: (hex & 0x000000FF) as u8,
+            green: ((hex & 0x0000FF00) >> 8) as u8,
+            red: ((hex & 0x00FF0000) >> 16) as u8,
         }
     }
     pub const fn from_rgb(red: u8, green: u8, blue: u8) -> Self {

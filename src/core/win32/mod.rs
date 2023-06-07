@@ -15,14 +15,15 @@ use crate::RectRegion;
 
 use super::core_state_implementation::WWindCoreEvent;
 use super::CoreStateImplementation;
-use winapi::shared::minwindef::{HMODULE, LPARAM, LRESULT, UINT, WPARAM};
+use winapi::shared::minwindef::{HIWORD, HMODULE, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HBRUSH, HDC, HPEN, HWND, RECT};
 use winapi::um::libloaderapi::GetModuleHandleA;
 use winapi::um::winuser::{
     CreateWindowExA, DefWindowProcA, DestroyWindow, DispatchMessageA, FillRect, GetClientRect,
-    GetDC, GetMessageA, GetUpdateRect, GetWindowRect, RegisterClassA, SetWindowTextA, ShowWindow,
-    TranslateMessage, ValidateRect, CS_OWNDC, SW_NORMAL, WM_CLOSE, WM_PAINT, WNDCLASSA,
-    WS_OVERLAPPEDWINDOW,
+    GetDC, GetMessageA, GetUpdateRect, GetWindowLongPtrA, GetWindowRect, RedrawWindow,
+    RegisterClassA, SetWindowLongPtrA, SetWindowTextA, ShowWindow, TranslateMessage, ValidateRect,
+    CS_OWNDC, GWLP_USERDATA, RDW_INTERNALPAINT, RDW_NOINTERNALPAINT, SW_NORMAL, WM_CLOSE, WM_PAINT,
+    WM_SIZE, WNDCLASSA, WS_OVERLAPPEDWINDOW,
 };
 
 static mut ON_EVENT: Option<unsafe fn(WWindCoreEvent)> = None;
@@ -31,6 +32,11 @@ pub struct Win32State {
     hinst: HMODULE,
     pen: HPEN,
     brush: HBRUSH,
+}
+
+struct Win32WindowData {
+    width: u16,
+    height: u16,
 }
 
 /// Neccesary because of "SendMessage" messages. Ugh
@@ -48,19 +54,36 @@ unsafe extern "system" fn window_proc(
 
             return 0;
         }
+        WM_SIZE => {
+            let width = LOWORD(lparam as u32);
+            let height = HIWORD(lparam as u32);
+
+            let window_data =
+                &mut *(GetWindowLongPtrA(window, GWLP_USERDATA) as *mut Win32WindowData);
+
+            if width <= window_data.width && height <= window_data.height {
+                let rect = RECT {
+                    left: 0,
+                    bottom: 0,
+                    top: height as i32,
+                    right: width as i32,
+                };
+
+                RedrawWindow(window, addr_of!(rect), ptr::null_mut(), RDW_INTERNALPAINT);
+            }
+
+            window_data.width = width;
+            window_data.height = height;
+        }
         WM_PAINT => {
             if let Some(on_event) = ON_EVENT {
                 SelectClipRgn(GetDC(window), ptr::null_mut());
 
                 let mut rect = MaybeUninit::uninit();
-                let res = GetUpdateRect(window, rect.as_mut_ptr(), 0);
+                GetUpdateRect(window, rect.as_mut_ptr(), 0);
                 let rect = rect.assume_init();
 
                 ValidateRect(window, ptr::null());
-
-                if res == 0 {
-                    return 0;
-                }
 
                 let rect_region = RectRegion {
                     x: rect.left as u16,
@@ -152,11 +175,15 @@ impl CoreStateImplementation for Win32State {
             )
         };
 
+        let window_data = Box::into_raw(Box::new(Win32WindowData { width, height }));
+
         unsafe {
             let dc = GetDC(window);
 
             SelectObject(dc, self.pen as *mut _);
             SelectObject(dc, self.brush as *mut _);
+
+            SetWindowLongPtrA(window, GWLP_USERDATA, window_data as isize);
         }
 
         println!("c");
@@ -278,16 +305,9 @@ impl CoreStateImplementation for Win32State {
     }
 
     fn get_size(&self, window: Self::Window) -> (u16, u16) {
-        let rect = unsafe {
-            let mut rect = MaybeUninit::uninit();
-            GetClientRect(window, rect.as_mut_ptr());
+        let window_data =
+            unsafe { &*(GetWindowLongPtrA(window, GWLP_USERDATA) as *const Win32WindowData) };
 
-            rect.assume_init()
-        };
-
-        (
-            (rect.right - rect.left) as u16,
-            (rect.bottom - rect.top) as u16,
-        )
+        (window_data.width, window_data.height)
     }
 }

@@ -1,6 +1,3 @@
-#[allow(non_camel_case_types)]
-#[allow(non_upper_case_globals)]
-#[allow(non_snake_case)]
 use std::marker::PhantomData;
 
 //  TODO:
@@ -52,14 +49,6 @@ pub use state::WWindState;
 pub use window::Window;
 
 static mut SHOULD_EXIT: bool = false;
-
-#[derive(Clone, Copy, Debug)]
-pub struct WindowPositionData {
-    pub width: u16,
-    pub height: u16,
-    pub x: i16,
-    pub y: i16,
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectRegion {

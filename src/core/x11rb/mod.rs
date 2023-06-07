@@ -1,8 +1,6 @@
 use crate::{Color, RectRegion, WindowPositionData};
 
-use super::{
-    core_state_implementation::WWindCoreEvent, CoreState, CoreStateImplementation, CoreWindowRef,
-};
+use super::{core_state_implementation::WWindCoreEvent, CoreStateImplementation, CoreWindowRef};
 use x11rb::{
     atom_manager,
     connection::Connection,
@@ -10,8 +8,8 @@ use x11rb::{
         xproto::{
             self, change_property, create_window, destroy_window, map_window, send_event,
             BackingStore, ChangeGCAux, ConnectionExt, CreateGCAux, CreateWindowAux, EventMask,
-            GetWindowAttributesRequest, Point, PropMode, Screen, Segment, Visualtype, WindowClass,
-            CLIENT_MESSAGE_EVENT, EXPOSE_EVENT, Rectangle,
+            GetWindowAttributesRequest, Point, PropMode, Rectangle, Screen, Segment, Visualtype,
+            WindowClass, CLIENT_MESSAGE_EVENT, EXPOSE_EVENT,
         },
         Event,
     },
@@ -215,7 +213,7 @@ impl CoreStateImplementation for X11RbState {
         let x2 = x2 as _;
         let y1 = y1 as _;
         let y2 = y2 as _;
-        
+
         let segment = Segment { x1, y1, x2, y2 };
 
         self.connection
@@ -225,13 +223,19 @@ impl CoreStateImplementation for X11RbState {
     }
 
     fn draw_rectangle(
-            &mut self,
-            drawing_context: Self::DrawingContext,
-            rectangle: RectRegion,
-        ) -> Result<(), Self::Error> {
-        let rect = Rectangle { x: rectangle.x as i16, y: rectangle.y as i16, width: rectangle.width, height: rectangle.height };
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        rectangle: RectRegion,
+    ) -> Result<(), Self::Error> {
+        let rect = Rectangle {
+            x: rectangle.x as i16,
+            y: rectangle.y as i16,
+            width: rectangle.width,
+            height: rectangle.height,
+        };
 
-        self.connection.poly_fill_rectangle(drawing_context, self.graphics_context, &[rect])?;
+        self.connection
+            .poly_fill_rectangle(drawing_context, self.graphics_context, &[rect])?;
 
         Ok(())
     }
@@ -306,7 +310,11 @@ impl CoreStateImplementation for X11RbState {
         Ok(())
     }
 
-    fn set_draw_color(&mut self, context: Self::DrawingContext, color: Color) -> Result<(), Self::Error> {
+    fn set_draw_color(
+        &mut self,
+        context: Self::DrawingContext,
+        color: Color,
+    ) -> Result<(), Self::Error> {
         let color = self.get_color(color);
 
         let values = ChangeGCAux::new().foreground(color).background(color);

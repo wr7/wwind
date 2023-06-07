@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
     rc::Rc,
 };
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct PhantomUnsend {
     _phantomdata: PhantomData<Rc<()>>,
 }

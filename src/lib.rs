@@ -3,7 +3,7 @@ use crate::core::CoreDrawingContext;
 #[allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
-use crate::core::{CoreState, CoreWindow};
+use crate::core::CoreWindow;
 use std::marker::PhantomData;
 
 //  TODO:
@@ -46,7 +46,10 @@ impl Color {
 use util::{ForgetGuard, PhantomUnsend};
 
 mod core;
+mod state;
 mod util;
+
+pub use state::WWindState;
 
 static mut SHOULD_EXIT: bool = false;
 
@@ -158,14 +161,14 @@ impl Window<'_> {
 }
 
 pub struct WWindInstance<OnInit: FnOnce(&mut WWindState)> {
-    state: CoreState,
+    state: WWindState,
     on_init: OnInit,
     _unsend: PhantomUnsend,
 }
 
 impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
     pub fn new(on_init: OnInit) -> Option<Self> {
-        let state = CoreState::new()?;
+        let state = WWindState::new()?;
         let _unsend = Default::default();
 
         Some(Self {
@@ -176,8 +179,7 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
     }
 
     pub fn run(mut self) {
-        let mut state = WWindState::from_core_state(&mut self.state);
-        (self.on_init)(&mut state);
+        (self.on_init)(&mut self.state);
 
         unsafe {
             while !SHOULD_EXIT && self.state.do_windows_exist() {
@@ -193,44 +195,4 @@ mod tests {
 
     #[test]
     fn it_works() {}
-}
-
-#[repr(C)]
-pub struct WWindState {
-    state: CoreState,
-    _unsend: PhantomUnsend,
-}
-
-impl WWindState {
-    pub(crate) fn from_core_state(state: &mut CoreState) -> ForgetGuard<'_, Self> {
-        let state = state.clone();
-
-        ForgetGuard::new(Self {
-            state,
-            _unsend: Default::default(),
-        })
-    }
-
-    pub fn schedule_exit(&mut self) {
-        unsafe { SHOULD_EXIT = true };
-    }
-
-    pub fn add_window<'a>(
-        &'a mut self,
-        x: i16,
-        y: i16,
-        height: u16,
-        width: u16,
-        title: &str,
-    ) -> Window<'a> {
-        let window = unsafe { self.state.add_window(x, y, height, width, title) };
-        let _unsend = Default::default();
-        let _phantom_data = Default::default();
-
-        Window {
-            window,
-            _unsend,
-            _phantom_data,
-        }
-    }
 }

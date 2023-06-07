@@ -1,7 +1,8 @@
-use crate::{Color, RectRegion};
+use crate::{
+    state::{CoreStateType, CORE_STATE_TYPE, STATE_CREATED},
+    Color, RectRegion,
+};
 use std::{convert::Infallible, hash::Hash, sync::atomic};
-
-use super::core_state::{CoreStateType, CORE_STATE_TYPE, STATE_CREATED};
 
 #[cfg(x11)]
 use super::x11rb::{RbError, X11RbState};
@@ -68,7 +69,7 @@ pub enum WWindCoreEvent {
 }
 
 /// An enumeration over all of the [CoreStateImplementation]s.
-pub enum CoreStateEnum {
+pub(crate) enum CoreStateEnum {
     #[cfg(x11)]
     X11(X11RbState),
     #[cfg(windows)]

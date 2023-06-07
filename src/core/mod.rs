@@ -38,7 +38,8 @@ impl CoreDrawingContext {
 
         self.get_core_state_data_mut()
             .core_state
-            .set_draw_color(context, color).unwrap();
+            .set_draw_color(context, color)
+            .unwrap();
     }
 
     pub fn draw_line(&mut self, x1: u16, y1: u16, x2: u16, y2: u16) {
@@ -53,7 +54,19 @@ impl CoreDrawingContext {
     pub fn draw_rectangle(&mut self, rectangle: RectRegion) {
         let context = self.context;
 
-        self.get_core_state_data_mut().core_state.draw_rectangle(context, rectangle).unwrap()
+        self.get_core_state_data_mut()
+            .core_state
+            .draw_rectangle(context, rectangle)
+            .unwrap()
+    }
+
+    pub fn draw_text(&mut self, x: u16, y: u16, text: &str) {
+        let context = self.context;
+
+        self.get_core_state_data_mut()
+            .core_state
+            .draw_text(context, x, y, text)
+            .unwrap()
     }
 }
 

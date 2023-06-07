@@ -54,6 +54,14 @@ pub trait CoreStateImplementation: Sized {
         rectangle: RectRegion,
     ) -> Result<(), Self::Error>;
 
+    fn draw_text(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        x: u16,
+        y: u16,
+        text: &str,
+    ) -> Result<(), Self::Error>;
+
     fn set_draw_color(
         &mut self,
         context: Self::DrawingContext,
@@ -315,6 +323,23 @@ impl CoreStateImplementation for CoreStateEnum {
                 CoreStateEnum::Win32(s) => {
                     Ok(s.draw_rectangle(drawing_context.win32(), rectangle)?)
                 }
+            }
+        }
+    }
+
+    fn draw_text(
+        &mut self,
+        drawing_context: Self::DrawingContext,
+        x: u16,
+        y: u16,
+        text: &str,
+    ) -> Result<(), Self::Error> {
+        unsafe {
+            match self {
+                #[cfg(x11)]
+                CoreStateEnum::X11(s) => Ok(s.draw_text(drawing_context.x11(), x, y, text)?),
+                #[cfg(windows)]
+                CoreStateEnum::Win32(s) => Ok(s.draw_text(drawing_context.win32(), x, y, text)?),
             }
         }
     }

@@ -1,5 +1,5 @@
 # wwind
-wwind is a cross-platform UI library that is meant to provide a nice programming experience and significantly reduce runtime errors and undefined/unexpected behavior. It is meant to do all of this while still providing reasonable performance and platform consistency. 
+wwind is a cross-platform Rust UI library that is meant to provide a nice programming experience and significantly reduce runtime errors and undefined/unexpected behavior. It is meant to do all of this while still providing reasonable performance and platform consistency. 
 ## Support
 wwind currently supports the Win32 API and X11, but I plan on adding support for Cocoa and Wayland.
 ## Example

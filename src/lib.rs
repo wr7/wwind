@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::MaybeUninit};
 
 //  TODO:
 // -  fix Win32Data leak
@@ -45,6 +45,7 @@ mod util;
 mod window;
 
 pub use drawing_context::DrawingContext;
+pub use state::WWindInitState;
 pub use state::WWindState;
 pub use window::Window;
 
@@ -67,15 +68,17 @@ impl RectRegion {
     }
 }
 
-pub struct WWindInstance<OnInit: FnOnce(&mut WWindState)> {
-    state: WWindState,
+pub struct WWindInstance<OnInit: FnOnce(&mut WWindInitState<UserData>) -> UserData, UserData = ()> {
+    state: WWindInitState<UserData>,
     on_init: OnInit,
     _unsend: PhantomUnsend,
 }
 
-impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
+impl<OnInit: FnOnce(&mut WWindInitState<UserData>) -> UserData, UserData>
+    WWindInstance<OnInit, UserData>
+{
     pub fn new(on_init: OnInit) -> Option<Self> {
-        let state = WWindState::new()?;
+        let state = WWindInitState::new()?;
         let _unsend = Default::default();
 
         Some(Self {
@@ -86,7 +89,10 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
     }
 
     pub fn run(mut self) {
-        (self.on_init)(&mut self.state);
+        let userdata = (self.on_init)(&mut self.state);
+        let userdata = Box::into_raw(Box::new(userdata));
+
+        unsafe { state::USERDATA = userdata as *mut _ };
 
         unsafe {
             while !SHOULD_EXIT && self.state.do_windows_exist() {
@@ -97,11 +103,4 @@ impl<OnInit: FnOnce(&mut WWindState)> WWindInstance<OnInit> {
             self.state.destroy();
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn it_works() {}
 }

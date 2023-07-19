@@ -1,13 +1,17 @@
 use std::{
     collections::HashMap,
-    mem::MaybeUninit,
+    ffi::c_void,
+    marker::PhantomData,
+    mem::{self, MaybeUninit},
+    ops::{Deref, DerefMut},
+    ptr,
     sync::atomic::{self, AtomicBool},
 };
 
 use crate::{
     core::{CoreStateEnum, CoreStateImplementation, CoreWindowRef, WWindCoreEvent},
     util::PhantomUnsend,
-    window::WindowData,
+    window::{self, OnClose, OnKeydown, OnRedraw, WindowData},
     Window, SHOULD_EXIT,
 };
 
@@ -22,9 +26,62 @@ pub enum CoreStateType {
 pub(super) static STATE_CREATED: AtomicBool = AtomicBool::new(false);
 pub(super) static mut CORE_STATE_TYPE: MaybeUninit<CoreStateType> = MaybeUninit::uninit();
 
+pub(super) static mut USERDATA: *mut c_void = ptr::null_mut();
+
+#[repr(transparent)]
+pub struct WWindState<UserData = ()>(#[doc(hidden)] WWindInitState<UserData>);
+
+impl<UserData> WWindState<UserData> {
+    pub fn userdata(&self) -> &UserData {
+        unsafe { &*(USERDATA as *const UserData) }
+    }
+    pub fn userdata_mut(&mut self) -> &mut UserData {
+        unsafe { &mut *(USERDATA as *mut UserData) }
+    }
+}
+
+impl<UserData> WWindState<UserData> {
+    pub(crate) unsafe fn from_init(state: WWindInitState<UserData>) -> Self {
+        Self(state)
+    }
+}
+
+impl<UserData> Deref for WWindState<UserData> {
+    type Target = WWindInitState<UserData>;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl<UserData> DerefMut for WWindState<UserData> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
+    }
+}
+
+impl<UserData> AsRef<WWindInitState<UserData>> for WWindState<UserData> {
+    fn as_ref(&self) -> &WWindInitState<UserData> {
+        &self.0
+    }
+}
+
+impl<UserData> AsMut<WWindInitState<UserData>> for WWindState<UserData> {
+    fn as_mut(&mut self) -> &mut WWindInitState<UserData> {
+        &mut self.0
+    }
+}
+
+impl<UserData> From<WWindState<UserData>> for WWindInitState<UserData> {
+    fn from(value: WWindState<UserData>) -> Self {
+        value.0
+    }
+}
+
 #[repr(C)]
-pub struct WWindState {
+pub struct WWindInitState<UserData = ()> {
     data: *mut CoreStateData,
+    _phantomdata: PhantomData<UserData>,
     _unsend: PhantomUnsend,
 }
 
@@ -34,7 +91,7 @@ pub struct CoreStateData {
     pub(crate) windows_to_destroy: Vec<CoreWindowRef>,
 }
 
-impl WWindState {
+impl<UserData> WWindInitState<UserData> {
     pub fn schedule_exit(&mut self) {
         unsafe { SHOULD_EXIT = true };
     }
@@ -46,7 +103,7 @@ impl WWindState {
         height: u16,
         width: u16,
         title: &str,
-    ) -> Window<'a> {
+    ) -> Window<'a, UserData> {
         let window_ref = self
             .get_core_data_mut()
             .core_state
@@ -65,11 +122,16 @@ impl WWindState {
     }
 }
 
-impl WWindState {
+impl<U> WWindInitState<U> {
+    pub(crate) unsafe fn with_data<V>(self) -> WWindInitState<V> {
+        mem::transmute(self)
+    }
+
     pub(crate) unsafe fn clone(&self) -> Self {
         Self {
             data: self.data,
             _unsend: Default::default(),
+            _phantomdata: PhantomData,
         }
     }
 
@@ -90,6 +152,7 @@ impl WWindState {
             Some(Self {
                 data: Box::into_raw(state),
                 _unsend: PhantomUnsend::default(),
+                _phantomdata: PhantomData,
             })
         } else {
             None
@@ -122,13 +185,20 @@ impl WWindState {
         self.get_core_data_mut().windows.remove(&window);
     }
 
-    pub(crate) fn get_window_from_ref(&mut self, window_ref: CoreWindowRef) -> Window {
+    pub(crate) fn get_window_from_ref(&mut self, window_ref: CoreWindowRef) -> Window<U> {
         Window::from_parts(window_ref, self.data)
     }
 
     pub(crate) unsafe fn destroy(self) {
         CORE_STATE_TYPE.assume_init_drop();
         drop(Box::from_raw(self.data));
+
+        if !USERDATA.is_null() {
+            let mut userdata: Box<MaybeUninit<U>> = Box::from_raw(USERDATA as *mut _);
+            userdata.assume_init_drop();
+
+            USERDATA = ptr::null_mut();
+        }
 
         STATE_CREATED.store(false, atomic::Ordering::Release);
     }
@@ -138,31 +208,33 @@ impl WWindState {
     }
 
     pub(crate) unsafe fn wait_for_events(&mut self) {
-        static mut STATE: MaybeUninit<WWindState> = MaybeUninit::uninit();
-        STATE = MaybeUninit::new(self.clone());
+        static mut STATE: MaybeUninit<WWindInitState> = MaybeUninit::uninit();
+
+        STATE = MaybeUninit::new(std::mem::transmute::<WWindInitState<U>, WWindInitState>(
+            self.clone(),
+        ));
 
         let core_state = &mut self.get_core_data_mut().core_state;
 
-        core_state.wait_for_events(&mut (on_event as unsafe fn(WWindCoreEvent)));
+        core_state.wait_for_events(&mut (on_event::<U> as unsafe fn(WWindCoreEvent)));
 
-        unsafe fn on_event(event: WWindCoreEvent) {
-            let state = STATE.assume_init_mut();
+        unsafe fn on_event<U>(event: WWindCoreEvent) {
+            let mut state = STATE.assume_init_mut().clone().with_data();
 
             match event {
                 WWindCoreEvent::CloseWindow(window_ref) => {
                     if let Some(window_data) =
                         state.get_core_data_mut().windows.get_mut(&window_ref)
                     {
-                        let closure = window_data.on_close.take();
-                        let mut closure = if let Some(closure) = closure {
-                            closure
+                        let mut closure = if let Some(closure) = window_data.on_close.take() {
+                            mem::transmute::<[usize; 2], Box<OnClose<U>>>(closure)
                         } else {
                             let mut window = state.get_window_from_ref(window_ref);
                             window.schedule_window_destruction();
                             return;
                         };
 
-                        let mut state_clone = state.clone();
+                        let mut state_clone = WWindState::from_init(state.clone());
                         let mut window = state.get_window_from_ref(window_ref);
 
                         closure(&mut state_clone, &mut window);
@@ -171,7 +243,7 @@ impl WWindState {
                             .get_core_data_mut()
                             .windows
                             .get_mut(&window_ref)
-                            .map(|data| data.on_close.insert(closure));
+                            .map(|data| data.on_close.insert(mem::transmute(closure)));
                     } else {
                         println!("CloseWindow called on non-existant window");
                     }
@@ -180,14 +252,13 @@ impl WWindState {
                     if let Some(window_data) =
                         state.get_core_data_mut().windows.get_mut(&window_ref)
                     {
-                        let closure = window_data.redraw.take();
-                        let mut closure = if let Some(closure) = closure {
-                            closure
+                        let mut closure = if let Some(closure) = window_data.redraw.take() {
+                            mem::transmute::<[usize; 2], Box<OnRedraw<U>>>(closure)
                         } else {
                             return;
                         };
 
-                        let mut state_clone = state.clone();
+                        let mut state_clone = WWindState::from_init(state.clone());
                         let mut window = state.get_window_from_ref(window_ref);
 
                         closure(&mut state_clone, &mut window, region);
@@ -196,25 +267,22 @@ impl WWindState {
                             .get_core_data_mut()
                             .windows
                             .get_mut(&window_ref)
-                            .map(|data| data.redraw.insert(closure));
-
-                        state.flush();
+                            .map(|data| data.redraw.insert(mem::transmute(closure)));
                     } else {
-                        println!("Exposed non-existant window");
+                        println!("CloseWindow called on non-existant window");
                     }
                 }
                 WWindCoreEvent::Keydown(window_ref, keycode) => {
                     if let Some(window_data) =
                         state.get_core_data_mut().windows.get_mut(&window_ref)
                     {
-                        let closure = window_data.keydown.take();
-                        let mut closure = if let Some(closure) = closure {
-                            closure
+                        let mut closure = if let Some(closure) = window_data.keydown.take() {
+                            mem::transmute::<[usize; 2], Box<OnKeydown<U>>>(closure)
                         } else {
                             return;
                         };
 
-                        let mut state_clone = state.clone();
+                        let mut state_clone = WWindState::from_init(state.clone());
                         let mut window = state.get_window_from_ref(window_ref);
 
                         closure(&mut state_clone, &mut window, keycode);
@@ -223,12 +291,14 @@ impl WWindState {
                             .get_core_data_mut()
                             .windows
                             .get_mut(&window_ref)
-                            .map(|data| data.keydown.insert(closure));
+                            .map(|data| data.keydown.insert(mem::transmute(closure)));
                     } else {
-                        println!("Keydown called on non-existant window");
+                        println!("CloseWindow called on non-existant window");
                     }
                 }
             }
+
+            state.flush();
         }
     }
 }

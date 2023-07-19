@@ -173,7 +173,7 @@ impl WWindState {
                             .get_mut(&window_ref)
                             .map(|data| data.on_close.insert(closure));
                     } else {
-                        println!("Exposed non-existant window");
+                        println!("CloseWindow called on non-existant window");
                     }
                 }
                 WWindCoreEvent::Expose(window_ref, region) => {
@@ -201,6 +201,31 @@ impl WWindState {
                         state.flush();
                     } else {
                         println!("Exposed non-existant window");
+                    }
+                }
+                WWindCoreEvent::Keydown(window_ref, keycode) => {
+                    if let Some(window_data) =
+                        state.get_core_data_mut().windows.get_mut(&window_ref)
+                    {
+                        let closure = window_data.keydown.take();
+                        let mut closure = if let Some(closure) = closure {
+                            closure
+                        } else {
+                            return;
+                        };
+
+                        let mut state_clone = state.clone();
+                        let mut window = state.get_window_from_ref(window_ref);
+
+                        closure(&mut state_clone, &mut window, keycode);
+
+                        state
+                            .get_core_data_mut()
+                            .windows
+                            .get_mut(&window_ref)
+                            .map(|data| data.keydown.insert(closure));
+                    } else {
+                        println!("Keydown called on non-existant window");
                     }
                 }
             }

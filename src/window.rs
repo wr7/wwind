@@ -10,6 +10,7 @@ use crate::{
 pub struct WindowData {
     pub on_close: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>)>>,
     pub redraw: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>, RectRegion)>>,
+    pub keydown: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>, u32)>>,
 }
 
 impl WindowData {
@@ -17,6 +18,7 @@ impl WindowData {
         Self {
             on_close: None,
             redraw: None,
+            keydown: None,
         }
     }
 }
@@ -60,7 +62,17 @@ impl Window<'_> {
             .get_mut(&window_ref)
             .map(|data| data.redraw = Some(Box::new(closure)));
     }
+    pub fn on_keydown<F: FnMut(&mut WWindState, &mut Window, u32) + 'static>(
+        &mut self,
+        closure: F,
+    ) {
+        let window_ref = self.window_ref;
 
+        self.get_core_data_mut()
+            .windows
+            .get_mut(&window_ref)
+            .map(|data| data.keydown = Some(Box::new(closure)));
+    }
     pub fn get_drawing_context(&mut self) -> DrawingContext<'_> {
         let window_ref = self.window_ref;
 

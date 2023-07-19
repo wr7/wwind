@@ -5,6 +5,7 @@ use x11rb::{
     atom_manager,
     connection::Connection,
     protocol::{
+        xkb::ConnectionExt as _,
         xproto::{
             self, change_property, create_window, destroy_window, map_window, send_event,
             BackingStore, ChangeGCAux, ConnectionExt, CreateGCAux, CreateWindowAux, EventMask,
@@ -18,6 +19,20 @@ use x11rb::{
 mod error;
 pub use error::RbError;
 
+pub struct Keymap {
+    keysyms: Vec<u32>,
+    min_keycode: usize,
+    keysyms_per_keycode: u8,
+}
+
+impl Keymap {
+    fn get_keysym(&self, keycode: usize) -> Option<u32> {
+        self.keysyms
+            .get(keycode.checked_sub(self.min_keycode)? * self.keysyms_per_keycode as usize)
+            .copied()
+    }
+}
+
 pub struct X11RbState {
     connection: RustConnection,
     graphics_context: u32,
@@ -27,6 +42,7 @@ pub struct X11RbState {
     red_shift: u8,
     green_shift: u8,
     blue_shift: u8,
+    keymap: Keymap,
 }
 
 fn get_first_bit_pos(mut num: u32) -> u8 {
@@ -90,14 +106,22 @@ impl CoreStateImplementation for X11RbState {
             todo!("Invalid root visual")
         };
 
-        // let color = connection.alloc_color(screen.default_colormap, 65535, 0, 0)?.reply()?.pixel;
-        // let color = visual.red_mask * 36 + visual.green_mask * 35 + visual.blue_mask * 38;
         let red_shift = get_first_bit_pos(visual.red_mask);
         let green_shift = get_first_bit_pos(visual.green_mask);
         let blue_shift = get_first_bit_pos(visual.blue_mask);
 
-        // let color = 0x463a22;
-        // let color = (visual.red_mask+1)/256 + (visual.green_mask+1)/256*36 + (visual.blue_mask+1)/256*38;
+        // Keyboard information //
+        let min_keycode = connection.setup().min_keycode;
+        let max_keycode = connection.setup().max_keycode;
+        let map = connection
+            .get_keyboard_mapping(min_keycode, max_keycode - min_keycode + 1)?
+            .reply()?;
+
+        let keymap = Keymap {
+            keysyms: map.keysyms,
+            min_keycode: min_keycode as usize,
+            keysyms_per_keycode: map.keysyms_per_keycode,
+        };
 
         let atoms = Atoms::new(&connection)?;
         let atoms = atoms.reply()?;
@@ -121,6 +145,7 @@ impl CoreStateImplementation for X11RbState {
             red_shift,
             green_shift,
             blue_shift,
+            keymap,
         })
     }
 
@@ -150,7 +175,7 @@ impl CoreStateImplementation for X11RbState {
         unsafe {
             let window = self.connection.generate_id()?;
 
-            let event_mask = EventMask::EXPOSURE;
+            let event_mask = EventMask::EXPOSURE | EventMask::KEY_PRESS;
             let window_aux = CreateWindowAux::new()
                 .event_mask(event_mask)
                 // .background_pixel(self.screen.white_pixel)
@@ -263,6 +288,13 @@ impl CoreStateImplementation for X11RbState {
                 };
 
                 event_handler(WWindCoreEvent::Expose(expose.window.into(), region));
+            }
+            Event::KeyPress(keypress) => {
+                if let Some(keysym) = self.keymap.get_keysym(keypress.detail as usize) {
+                    event_handler(WWindCoreEvent::Keydown(keypress.event.into(), keysym));
+                } else {
+                    eprintln!("Invalid keycode {}", keypress.detail);
+                }
             }
             Event::ClientMessage(event) => {
                 // XCB_CLIENT_MESSAGE

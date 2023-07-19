@@ -66,6 +66,7 @@ pub trait CoreStateImplementation: Sized {
 pub enum WWindCoreEvent {
     CloseWindow(CoreWindowRef),
     Expose(CoreWindowRef, RectRegion),
+    Keydown(CoreWindowRef, u32),
 }
 
 /// An enumeration over all of the [CoreStateImplementation]s.

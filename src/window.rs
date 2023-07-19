@@ -1,16 +1,22 @@
-use std::marker::PhantomData;
+use std::{ffi::c_void, marker::PhantomData, mem};
 
 use crate::{
     core::{CoreStateImplementation, CoreWindowRef},
     state::CoreStateData,
     util::PhantomUnsend,
-    DrawingContext, RectRegion, WWindState,
+    DrawingContext, RectRegion, WWindInitState, WWindState,
 };
 
+pub type OnClose<UserData> = dyn FnMut(&mut WWindState<UserData>, &mut Window<UserData>) + 'static;
+pub type OnRedraw<UserData> =
+    dyn FnMut(&mut WWindState<UserData>, &mut Window<UserData>, RectRegion) + 'static;
+pub type OnKeydown<UserData> =
+    dyn FnMut(&mut WWindState<UserData>, &mut Window<UserData>, u32) + 'static;
+
 pub struct WindowData {
-    pub on_close: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>)>>,
-    pub redraw: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>, RectRegion)>>,
-    pub keydown: Option<Box<dyn for<'a> FnMut(&'a mut WWindState, &'a mut Window<'a>, u32)>>,
+    pub on_close: Option<[usize; 2]>,
+    pub redraw: Option<[usize; 2]>,
+    pub keydown: Option<[usize; 2]>,
 }
 
 impl WindowData {
@@ -23,14 +29,19 @@ impl WindowData {
     }
 }
 
-pub struct Window<'a> {
+#[repr(C)]
+pub struct Window<'a, UserData = ()> {
     window_ref: CoreWindowRef,
     data: *mut CoreStateData,
     _unsend: PhantomUnsend,
-    _phantom_data: PhantomData<&'a ()>,
+    _phantom_data: PhantomData<(&'a (), UserData)>,
 }
 
-impl Window<'_> {
+impl<'a, UserData> Window<'a, UserData> {
+    pub(crate) unsafe fn with_data<V>(self) -> Window<'a, V> {
+        mem::transmute(self)
+    }
+
     pub fn schedule_window_destruction(&mut self) {
         let window_to_schedule = self.window_ref;
         let windows_to_destroy = &mut self.get_core_data_mut().windows_to_destroy;
@@ -40,38 +51,54 @@ impl Window<'_> {
         }
     }
 
-    pub fn on_window_close<F: FnMut(&mut WWindState, &mut Window) + 'static>(
+    pub fn on_window_close<F: FnMut(&mut WWindState<UserData>, &mut Window<UserData>) + 'static>(
         &mut self,
         closure: F,
     ) {
         let window_ref = self.window_ref;
 
-        self.get_core_data_mut()
-            .windows
-            .get_mut(&window_ref)
-            .map(|data| data.on_close = Some(Box::new(closure)));
+        if let Some(window_data) = self.get_core_data_mut().windows.get_mut(&window_ref) {
+            if let Some(old_binding) = window_data.on_close {
+                drop(unsafe { mem::transmute::<[usize; 2], Box<OnClose<UserData>>>(old_binding) })
+            }
+
+            window_data.on_close =
+                Some(unsafe { mem::transmute(Box::new(closure) as Box<OnClose<UserData>>) });
+        }
     }
-    pub fn on_redraw<F: FnMut(&mut WWindState, &mut Window, RectRegion) + 'static>(
+
+    pub fn on_redraw<
+        F: FnMut(&mut WWindState<UserData>, &mut Window<UserData>, RectRegion) + 'static,
+    >(
         &mut self,
         closure: F,
     ) {
         let window_ref = self.window_ref;
 
-        self.get_core_data_mut()
-            .windows
-            .get_mut(&window_ref)
-            .map(|data| data.redraw = Some(Box::new(closure)));
+        if let Some(window_data) = self.get_core_data_mut().windows.get_mut(&window_ref) {
+            if let Some(old_binding) = window_data.redraw {
+                drop(unsafe { mem::transmute::<[usize; 2], Box<OnRedraw<UserData>>>(old_binding) })
+            }
+
+            window_data.redraw =
+                Some(unsafe { mem::transmute(Box::new(closure) as Box<OnRedraw<UserData>>) });
+        }
     }
-    pub fn on_keydown<F: FnMut(&mut WWindState, &mut Window, u32) + 'static>(
+
+    pub fn on_keydown<F: FnMut(&mut WWindState<UserData>, &mut Window<UserData>, u32) + 'static>(
         &mut self,
         closure: F,
     ) {
         let window_ref = self.window_ref;
 
-        self.get_core_data_mut()
-            .windows
-            .get_mut(&window_ref)
-            .map(|data| data.keydown = Some(Box::new(closure)));
+        if let Some(window_data) = self.get_core_data_mut().windows.get_mut(&window_ref) {
+            if let Some(old_binding) = window_data.keydown {
+                drop(unsafe { mem::transmute::<[usize; 2], Box<OnKeydown<UserData>>>(old_binding) })
+            }
+
+            window_data.keydown =
+                Some(unsafe { mem::transmute(Box::new(closure) as Box<OnKeydown<UserData>>) });
+        }
     }
     pub fn get_drawing_context(&mut self) -> DrawingContext<'_> {
         let window_ref = self.window_ref;
@@ -88,7 +115,7 @@ impl Window<'_> {
     }
 }
 
-impl Window<'_> {
+impl<UserData> Window<'_, UserData> {
     pub(crate) fn from_parts(window_ref: CoreWindowRef, data: *mut CoreStateData) -> Self {
         Self {
             window_ref,

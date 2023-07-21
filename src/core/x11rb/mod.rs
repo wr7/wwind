@@ -9,7 +9,7 @@ use x11rb::{
         xproto::{
             self, change_property, create_window, destroy_window, map_window, send_event,
             BackingStore, ChangeGCAux, ConnectionExt, CreateGCAux, CreateWindowAux, EventMask,
-            PropMode, Rectangle, Screen, Segment, Visualtype, WindowClass,
+            KeyButMask, PropMode, Rectangle, Screen, Segment, Visualtype, WindowClass,
         },
         Event,
     },
@@ -26,9 +26,10 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    fn get_keysym(&self, keycode: usize) -> Option<u32> {
+    fn get_keysym(&self, keycode: usize, mut group: usize) -> Option<u32> {
+        group = group % self.keysyms_per_keycode as usize;
         self.keysyms
-            .get(keycode.checked_sub(self.min_keycode)? * self.keysyms_per_keycode as usize)
+            .get(keycode.checked_sub(self.min_keycode)? * self.keysyms_per_keycode as usize + group)
             .copied()
     }
 }
@@ -290,7 +291,12 @@ impl CoreStateImplementation for X11RbState {
                 event_handler(WWindCoreEvent::Expose(expose.window.into(), region));
             }
             Event::KeyPress(keypress) => {
-                if let Some(keysym) = self.keymap.get_keysym(keypress.detail as usize) {
+                let group: u16 = keypress.state.into();
+
+                if let Some(keysym) = self
+                    .keymap
+                    .get_keysym(keypress.detail as usize, group as usize)
+                {
                     event_handler(WWindCoreEvent::Keydown(keypress.event.into(), keysym));
                 } else {
                     eprintln!("Invalid keycode {}", keypress.detail);
